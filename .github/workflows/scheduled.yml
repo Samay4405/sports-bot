@@ -25,6 +25,9 @@ on:
 jobs:
   run-booking-bot:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
 
     # Prevent overlapping runs if one execution is still in progress.
     concurrency:
@@ -69,8 +72,6 @@ jobs:
       - name: Run due tasks
         working-directory: backend
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
           # Optional: manual-run controls from workflow_dispatch inputs.
           RUN_TARGET_IST_HHMM: ${{ github.event.inputs.run_target_ist_hhmm }}
           RUN_ONLY_TASK_ID: ${{ github.event.inputs.run_only_task_id }}
