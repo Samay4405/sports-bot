@@ -1,0 +1,87 @@
+name: Scheduled Sports Booking
+
+on:
+  # Runs every day at 23:20 UTC, which is 04:50 IST next day.
+  schedule:
+    - cron: "20 23 * * *"
+
+  # Allows manual trigger from the Actions tab for testing.
+  workflow_dispatch:
+    inputs:
+      run_target_ist_hhmm:
+        description: "Optional IST time override in HH:MM (example: 05:00)."
+        required: false
+        default: ""
+      run_only_task_id:
+        description: "Optional Task ID to run only one task."
+        required: false
+        default: ""
+      ignore_trigger_time:
+        description: "If true, do not match triggerTime and run filtered task(s) now."
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  run-booking-bot:
+    runs-on: ubuntu-latest
+
+    # Prevent overlapping runs if one execution is still in progress.
+    concurrency:
+      group: scheduled-sports-booking
+      cancel-in-progress: false
+
+    steps:
+      # Step 1: Fetch repository code.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Step 2: Set up Node.js runtime for backend scripts.
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      # Step 3: Install backend dependencies from package-lock.json.
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      # Step 4: Install Chromium and required system libraries for Playwright.
+      - name: Install Playwright browser
+        working-directory: backend
+        run: npx playwright install --with-deps chromium
+
+      # Step 5: Generate Prisma client from schema.
+      - name: Generate Prisma client
+        working-directory: backend
+        run: npm run prisma:generate:postgres
+
+      # Step 6: Apply committed migrations in non-interactive CI mode.
+      - name: Run database migrations
+        working-directory: backend
+        run: npm run prisma:deploy:postgres
+
+      # Step 7: Execute scheduled task runner script.
+      # The script exits automatically after processing due tasks.
+      - name: Run due tasks
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+          # Optional: manual-run controls from workflow_dispatch inputs.
+          RUN_TARGET_IST_HHMM: ${{ github.event.inputs.run_target_ist_hhmm }}
+          RUN_ONLY_TASK_ID: ${{ github.event.inputs.run_only_task_id }}
+          RUN_IGNORE_TRIGGER_TIME: ${{ github.event.inputs.ignore_trigger_time }}
+        run: npm run run:due-tasks
+
+      # Optional Step 8: Upload screenshots/log artifacts from this run.
+      - name: Upload screenshots artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: booking-screenshots
+          path: backend/screenshots
+          if-no-files-found: ignore

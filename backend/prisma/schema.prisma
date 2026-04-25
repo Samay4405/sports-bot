@@ -1,0 +1,31 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Task {
+  id          String   @id @default(uuid())
+  websiteUrl  String
+  username    String
+  password    String
+  sport       String
+  slotTime    String
+  triggerTime String
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  runs        Run[]
+}
+
+model Run {
+  id             String   @id @default(uuid())
+  taskId         String
+  task           Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  status         String
+  logs           String
+  screenshotPath String?
+  executedAt     DateTime @default(now())
+}

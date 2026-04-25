@@ -1,0 +1,30 @@
+{
+  "name": "sports-bot-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "run:due-tasks": "node src/scripts/runDueTasks.js",
+    "prisma:generate": "prisma generate --schema prisma/schema.prisma",
+    "prisma:generate:sqlite": "prisma generate --schema prisma/schema.prisma",
+    "prisma:generate:postgres": "prisma generate --schema prisma/postgres/schema.prisma",
+    "prisma:migrate": "prisma migrate dev --name init",
+    "prisma:deploy": "prisma migrate deploy --schema prisma/schema.prisma",
+    "prisma:deploy:postgres": "prisma migrate deploy --schema prisma/postgres/schema.prisma"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "node-cron": "^3.0.3",
+    "playwright": "^1.48.2",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.7",
+    "prisma": "^5.22.0"
+  }
+}

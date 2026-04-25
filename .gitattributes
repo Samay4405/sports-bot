@@ -1,0 +1,8 @@
+* text=auto
+
+# Keep scripts with LF
+*.sh text eol=lf
+
+# Keep Windows scripts with CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf

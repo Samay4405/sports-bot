@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #172033;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Outfit", sans-serif;
+  background:
+    radial-gradient(circle at 12% 10%, #b7efe5 0%, transparent 30%),
+    radial-gradient(circle at 92% 20%, #f5cdb8 0%, transparent 24%),
+    linear-gradient(140deg, #edf3ff 0%, #f9fffb 52%, #fef4ea 100%);
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.glass {
+  backdrop-filter: blur(10px);
+  background: rgba(255, 255, 255, 0.78);
+}
