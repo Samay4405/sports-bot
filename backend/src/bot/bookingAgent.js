@@ -34,6 +34,14 @@ const LOGIN_BUTTON_SELECTORS = [
   '[role="button"]:has-text("Login")',
 ];
 
+function normalizeText(value) {
+  return String(value || "")
+    .replace(/[\u2012\u2013\u2014\u2015]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
 async function firstVisibleLocator(page, selectors, timeout = 1500) {
   for (const selector of selectors) {
     try {
@@ -67,54 +75,140 @@ async function navigateToBookingSection(page, log) {
   log("Booking section navigation element not obvious; continuing on current page", "warn");
 }
 
-async function tryBookSlot(page, sport, slotTime, log) {
-  const sportTileSelectors = [
-    `text=${sport}`,
-    `[aria-label*="${sport}" i]`,
-    `[title*="${sport}" i]`,
-  ];
+async function openSportCardAndSlotList(page, sport, log) {
+  const cards = page
+    .locator(':is(div,article,section)')
+    .filter({ has: page.locator('button:has-text("View Slots"), a:has-text("View Slots")') });
 
-  for (const selector of sportTileSelectors) {
-    const tile = page.locator(selector).first();
-    if (await tile.count()) {
-      await tile.click({ timeout: 1500 }).catch(() => null);
-      log(`Sport target located using selector: ${selector}`);
-      break;
+  const targetSport = normalizeText(sport);
+
+  for (let i = 0; i < (await cards.count()); i += 1) {
+    const card = cards.nth(i);
+    const cardText = normalizeText(await card.innerText().catch(() => ""));
+
+    if (!cardText.includes(targetSport)) {
+      continue;
     }
+
+    const viewSlotsButton = card.locator('button:has-text("View Slots"), a:has-text("View Slots")').first();
+    if (!(await viewSlotsButton.count())) {
+      continue;
+    }
+
+    await viewSlotsButton.click({ timeout: 3000 });
+    log(`Opened slot list for sport card: ${sport}`);
+    await page.waitForLoadState("domcontentloaded", { timeout: 10_000 }).catch(() => null);
+    return true;
   }
 
-  const slotRow = page.locator(`:is(div,li,tr,section):has-text("${slotTime}")`).first();
-  if (!(await slotRow.count())) {
+  return false;
+}
+
+async function openRequestedSlotSpots(page, slotLabel, log) {
+  const slotCards = page
+    .locator(':is(div,article,section)')
+    .filter({ has: page.locator('button:has-text("View Spots"), a:has-text("View Spots")') });
+
+  const normalizedTarget = normalizeText(slotLabel);
+
+  for (let i = 0; i < (await slotCards.count()); i += 1) {
+    const card = slotCards.nth(i);
+    const text = normalizeText(await card.innerText().catch(() => ""));
+
+    if (!text.includes(normalizedTarget)) {
+      continue;
+    }
+
+    if (text.includes("ended") || text.includes("full") || text.includes("unavailable")) {
+      return { outcome: "unavailable" };
+    }
+
+    const viewSpotsButton = card.locator('button:has-text("View Spots"), a:has-text("View Spots")').first();
+    if (!(await viewSpotsButton.count())) {
+      return { outcome: "slot-not-visible" };
+    }
+
+    await viewSpotsButton.click({ timeout: 3000 });
+    log(`Opened spots for slot label: ${slotLabel}`);
+    await page.waitForLoadState("domcontentloaded", { timeout: 10_000 }).catch(() => null);
+    return { outcome: "opened" };
+  }
+
+  return { outcome: "slot-not-visible" };
+}
+
+async function chooseAnyAvailableSpotAndConfirm(page, log) {
+  const spotButtons = page
+    .locator("button")
+    .filter({ hasText: /^\s*\d+\s*$/ });
+
+  if (!(await spotButtons.count())) {
     return { outcome: "slot-not-visible" };
   }
 
-  const unavailable = await slotRow
-    .locator(':scope :is(span,div,small):has-text("Full"), :scope :is(span,div,small):has-text("Unavailable")')
-    .count();
+  for (let i = 0; i < (await spotButtons.count()); i += 1) {
+    const button = spotButtons.nth(i);
 
-  if (unavailable) {
-    return { outcome: "unavailable" };
+    if (!(await button.isVisible().catch(() => false))) {
+      continue;
+    }
+
+    if (!(await button.isEnabled().catch(() => false))) {
+      continue;
+    }
+
+    const candidateText = (await button.innerText().catch(() => "")).trim();
+    await button.click({ timeout: 3000 }).catch(() => null);
+
+    const modal = page
+      .locator(':is(div,section,article):has-text("Confirm Your Booking")')
+      .first();
+
+    if (!(await modal.count())) {
+      continue;
+    }
+
+    const termsCheckbox = modal
+      .locator(
+        'input[type="checkbox"], label:has-text("I agree"):has(input), [role="checkbox"]'
+      )
+      .first();
+
+    if (await termsCheckbox.count()) {
+      await termsCheckbox.click({ timeout: 2000 }).catch(() => null);
+    }
+
+    const confirmButton = modal.locator('button:has-text("Confirm")').first();
+    if (!(await confirmButton.count())) {
+      continue;
+    }
+
+    if (!(await confirmButton.isEnabled().catch(() => false))) {
+      continue;
+    }
+
+    await confirmButton.click({ timeout: 3000 });
+    log(`Booked spot number ${candidateText}`);
+    await page.waitForTimeout(1500);
+    return { outcome: "booked" };
   }
 
-  const bookButton = slotRow
-    .locator('button:has-text("Book"), button:has-text("Reserve"), [role="button"]:has-text("Book")')
-    .first();
+  return { outcome: "unavailable" };
+}
 
-  if (!(await bookButton.count())) {
+async function tryBookSlot(page, sport, slotTime, log) {
+  const openedSport = await openSportCardAndSlotList(page, sport, log);
+  if (!openedSport) {
+    log(`Could not locate sport card: ${sport}`, "warn");
     return { outcome: "slot-not-visible" };
   }
 
-  await bookButton.click({ timeout: 2000 });
-
-  const confirmButton = page
-    .locator('button:has-text("Confirm"), button:has-text("Yes"), button:has-text("Proceed")')
-    .first();
-
-  if (await confirmButton.count()) {
-    await confirmButton.click({ timeout: 2000 }).catch(() => null);
+  const openSlotResult = await openRequestedSlotSpots(page, slotTime, log);
+  if (openSlotResult.outcome !== "opened") {
+    return openSlotResult;
   }
 
-  return { outcome: "booked" };
+  return chooseAnyAvailableSpotAndConfirm(page, log);
 }
 
 export async function runBookingAgent(task, logger, options = {}) {

@@ -97,6 +97,15 @@ Open `http://localhost:5173`.
 4. Observe real-time logs in the dashboard.
 5. Review history table for status and screenshot proof.
 
+## Single Morning Trigger Pattern
+
+You do not need multiple trigger times.
+
+- Set one morning trigger time, such as `04:50` IST.
+- Save as many tasks as you want with that same trigger time.
+- When that trigger fires, the scheduler runs every enabled task that matches it, one by one.
+- Each task still books its own configured sport and preferred slot time.
+
 ## Notes for Real Websites
 
 - Different websites have different DOM structures. The bot includes fallback selectors but you may need custom selectors for your campus portal.

@@ -5,6 +5,16 @@ import { Select } from "./ui/select";
 import { Button } from "./ui/button";
 import { Switch } from "./ui/switch";
 
+const SLOT_LABEL_OPTIONS = [
+  "7:00 AM – 7:45 AM",
+  "8:00 AM – 8:45 AM",
+  "9:00 AM – 9:45 AM",
+  "10:00 AM – 10:45 AM",
+  "11:00 AM – 11:45 AM",
+  "12:00 PM – 12:45 PM",
+  "__custom__",
+];
+
 const EMPTY_FORM = {
   id: "",
   websiteUrl: "",
@@ -12,7 +22,8 @@ const EMPTY_FORM = {
   password: "",
   sport: "",
   customSport: "",
-  slotTime: "07:00",
+  slotTime: "7:00 AM – 7:45 AM",
+  customSlotTime: "",
   triggerTime: "05:00:00",
   enabled: true,
 };
@@ -34,6 +45,7 @@ export default function TaskForm({
   }, [tasks, form.sport]);
 
   const effectiveSport = form.sport === "__custom__" ? form.customSport : form.sport;
+  const effectiveSlotTime = form.slotTime === "__custom__" ? form.customSlotTime : form.slotTime;
 
   const update = (patch) => setForm((prev) => ({ ...prev, ...patch }));
 
@@ -44,7 +56,7 @@ export default function TaskForm({
     }
     const selected = tasks.find((task) => task.id === taskId);
     if (selected) {
-      setForm({ ...selected, password: "", customSport: "" });
+      setForm({ ...selected, password: "", customSport: "", customSlotTime: "" });
     }
   };
 
@@ -53,6 +65,7 @@ export default function TaskForm({
     onSave({
       ...form,
       sport: effectiveSport,
+      slotTime: effectiveSlotTime,
       triggerTime: form.triggerTime.slice(0, 5),
     });
   };
@@ -150,13 +163,37 @@ export default function TaskForm({
         </div>
 
         <div>
-          <label className="mb-1 block text-sm font-medium">Preferred Slot Time</label>
-          <Input
+          <label className="mb-1 block text-sm font-medium">Preferred Slot Label</label>
+          <Select
             required
-            type="time"
-            value={form.slotTime}
-            onChange={(e) => update({ slotTime: e.target.value })}
-          />
+            value={SLOT_LABEL_OPTIONS.includes(form.slotTime) ? form.slotTime : form.slotTime ? "__custom__" : ""}
+            onChange={(e) => {
+              if (e.target.value === "__custom__") {
+                update({ slotTime: "__custom__", customSlotTime: "" });
+              } else {
+                update({ slotTime: e.target.value, customSlotTime: "" });
+              }
+            }}
+          >
+            <option value="">Choose exact slot label</option>
+            {SLOT_LABEL_OPTIONS.map((slot) => (
+              <option key={slot} value={slot}>
+                {slot === "__custom__" ? "Enter manually" : slot}
+              </option>
+            ))}
+          </Select>
+          {form.slotTime === "__custom__" && (
+            <Input
+              className="mt-2"
+              value={form.customSlotTime}
+              onChange={(e) => update({ customSlotTime: e.target.value })}
+              placeholder="7:00 AM – 7:45 AM"
+              required
+            />
+          )}
+          <p className="mt-1 text-xs text-slate-500">
+            Paste the exact slot text shown on the website so the bot can match it.
+          </p>
         </div>
 
         <div>
