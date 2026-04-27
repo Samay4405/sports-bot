@@ -209,7 +209,18 @@ export async function runBookingAgent(task, logger, options = {}) {
     }
 
     if (result.outcome !== "booked") {
-      return { status: result.outcome === "unavailable" ? "unavailable" : "failed", screenshotPath: null };
+      const reason =
+        result.outcome === "unavailable"
+          ? `Slot ${task.slotTime} was marked unavailable`
+          : result.outcome === "slot-not-visible"
+            ? `Could not find slot ${task.slotTime} on the page`
+            : "Booking did not complete";
+
+      return {
+        status: result.outcome === "unavailable" ? "unavailable" : "failed",
+        reason,
+        screenshotPath: null,
+      };
     }
 
     const screenshotFile = `task-${task.id}-${Date.now()}.png`;
@@ -217,10 +228,10 @@ export async function runBookingAgent(task, logger, options = {}) {
     await page.screenshot({ path: screenshotPath, fullPage: true });
 
     logger.push("Booking confirmed and screenshot captured");
-    return { status: "success", screenshotPath: screenshotFile };
+    return { status: "success", reason: "Booking confirmed", screenshotPath: screenshotFile };
   } catch (error) {
     logger.push(`Bot error: ${error.message}`, "error");
-    return { status: "failed", screenshotPath: null };
+    return { status: "failed", reason: error.message, screenshotPath: null };
   } finally {
     await browser.close();
   }

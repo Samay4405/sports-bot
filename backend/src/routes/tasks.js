@@ -74,6 +74,7 @@ export default function createTaskRouter({ cronManager, logHub }) {
       taskId: task.id,
       runId: run.id,
       status: result.status,
+      reason: result.reason,
       screenshotPath: result.screenshotPath,
     });
 

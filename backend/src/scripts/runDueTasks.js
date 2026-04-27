@@ -1,5 +1,6 @@
 import "dotenv/config";
 import path from "path";
+import fs from "fs/promises";
 import prisma from "../lib/prisma.js";
 import { decryptText } from "../lib/encrypt.js";
 import { RunLogger } from "../lib/logger.js";
@@ -65,7 +66,16 @@ async function runTask(task) {
     },
   });
 
-  return { runId: run.id, status: result.status };
+  return { runId: run.id, status: result.status, reason: result.reason, screenshotPath: result.screenshotPath };
+}
+
+async function appendStepSummary(lines) {
+  const summaryFile = process.env.GITHUB_STEP_SUMMARY;
+  if (!summaryFile) {
+    return;
+  }
+
+  await fs.appendFile(summaryFile, `${lines.join("\n")}\n`);
 }
 
 async function main() {
@@ -108,10 +118,15 @@ async function main() {
 
   if (tasks.length === 0) {
     console.log("[scheduler] No due tasks found. Exiting.");
+    await appendStepSummary([
+      "## Scheduled Sports Booking",
+      "- No due tasks matched the current run criteria.",
+    ]);
     return;
   }
 
   console.log(`[scheduler] Found ${tasks.length} due task(s).`);
+  const summaryLines = ["## Scheduled Sports Booking", `- Due tasks found: ${tasks.length}`];
 
   let failedCount = 0;
 
@@ -121,6 +136,9 @@ async function main() {
     try {
       const result = await runTask(task);
       console.log(`[scheduler] Task ${task.id} finished with status: ${result.status}`);
+      summaryLines.push(
+        `- Task ${task.id} (${task.sport} ${task.slotTime}): ${result.status}${result.reason ? ` - ${result.reason}` : ""}`
+      );
 
       if (result.status !== "success") {
         failedCount += 1;
@@ -128,8 +146,11 @@ async function main() {
     } catch (error) {
       failedCount += 1;
       console.error(`[scheduler] Task ${task.id} crashed: ${error.message}`);
+      summaryLines.push(`- Task ${task.id} (${task.sport} ${task.slotTime}): crashed - ${error.message}`);
     }
   }
+
+  await appendStepSummary(summaryLines);
 
   if (failedCount > 0) {
     throw new Error(`${failedCount} task(s) failed in scheduled run`);
