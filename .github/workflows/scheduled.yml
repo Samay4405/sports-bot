@@ -1,9 +1,9 @@
 name: Scheduled Sports Booking
 
 on:
-  # Runs every day at 23:20 UTC, which is 04:50 IST next day.
+  # Runs every day at 07:30 UTC, which is 13:00 IST.
   schedule:
-    - cron: "20 23 * * *"
+    - cron: "30 7 * * *"
 
   # Allows manual trigger from the Actions tab for testing.
   workflow_dispatch:

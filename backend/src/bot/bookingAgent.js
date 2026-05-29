@@ -42,6 +42,24 @@ function normalizeText(value) {
     .toLowerCase();
 }
 
+function getSportVariants(sport) {
+  const base = normalizeText(sport);
+  const variants = new Set([base]);
+
+  const stripped = base
+    .replace(/\b(pool|court|ground|center|centre|court-\d+[a-z]?)\b/g, "")
+    .replace(/\s*-\s*\d+[a-z]?\s*$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (stripped) variants.add(stripped);
+
+  const firstToken = base.split(" ")[0];
+  if (firstToken) variants.add(firstToken);
+
+  return Array.from(variants).filter(Boolean);
+}
+
 async function firstVisibleLocator(page, selectors, timeout = 1500) {
   for (const selector of selectors) {
     try {
@@ -54,53 +72,151 @@ async function firstVisibleLocator(page, selectors, timeout = 1500) {
   return null;
 }
 
-async function navigateToBookingSection(page, log) {
-  const candidates = [
-    'a:has-text("Booking")',
-    'a:has-text("Sports")',
-    'button:has-text("Booking")',
-    'button:has-text("Sports")',
-    '[role="tab"]:has-text("Booking")',
-  ];
-
-  for (const selector of candidates) {
-    const node = page.locator(selector).first();
-    if (await node.count()) {
-      await node.click({ timeout: 1500 }).catch(() => null);
-      log(`Tried navigation selector: ${selector}`);
-      return;
+async function logDomProbe(page, log, label) {
+  const visibleText = async (selector, limit = 12) => {
+    const nodes = page.locator(selector);
+    const count = Math.min(await nodes.count(), limit);
+    const items = [];
+    for (let i = 0; i < count; i += 1) {
+      const node = nodes.nth(i);
+      const visible = await node.isVisible().catch(() => false);
+      if (!visible) continue;
+      const text = normalizeText(await node.innerText().catch(() => ""));
+      if (text) items.push(text.slice(0, 120));
     }
+    return items;
+  };
+
+  const headings = [
+    ...(await visibleText("h1")),
+    ...(await visibleText("h2")),
+    ...(await visibleText("h3")),
+  ];
+  const buttons = await visibleText("button");
+  const links = await visibleText("a");
+
+  log(`[DEBUG] DOM probe (${label}) URL: ${page.url()}`);
+  log(`[DEBUG] DOM probe headings: ${headings.slice(0, 8).join(" | ") || "none"}`);
+  log(`[DEBUG] DOM probe buttons: ${buttons.slice(0, 12).join(" | ") || "none"}`);
+  log(`[DEBUG] DOM probe links: ${links.slice(0, 12).join(" | ") || "none"}`);
+}
+
+function getSportsListingUrl(websiteUrl) {
+  try {
+    const parsed = new URL(websiteUrl);
+    return `${parsed.origin}/sports`;
+  } catch {
+    return "https://sports.mitwpu.edu.in/sports";
+  }
+}
+
+async function navigateToSportsListing(page, websiteUrl, log) {
+  const sportsUrl = getSportsListingUrl(websiteUrl);
+  const currentUrl = page.url();
+
+  // Already on the sports listing page — no need to navigate.
+  if (currentUrl.includes("/sports") && !currentUrl.includes("/sports/")) {
+    log(`Already on sports listing: ${currentUrl}`);
+    return;
   }
 
-  log("Booking section navigation element not obvious; continuing on current page", "warn");
+  log(`Navigating directly to sports listing: ${sportsUrl}`);
+  await page.goto(sportsUrl, { waitUntil: "domcontentloaded", timeout: 15_000 }).catch(() => null);
+  // Wait for the sport cards / search bar to render (SPA hydration).
+  await page.waitForTimeout(1500);
+  log(`Navigation complete, now at: ${page.url()}`);
+}
+
+async function searchAndFilterSport(page, sport, log) {
+  const searchSelectors = [
+    'input[placeholder*="Search" i]',
+    'input[placeholder*="sport" i]',
+    'input[type="search"]',
+    'input[aria-label*="search" i]',
+  ];
+
+  for (const selector of searchSelectors) {
+    const searchInput = page.locator(selector).first();
+    if (!(await searchInput.count())) continue;
+    if (!(await searchInput.isVisible().catch(() => false))) continue;
+
+    log(`Found search bar (${selector}), typing: ${sport}`);
+    await searchInput.click({ timeout: 2000 }).catch(() => null);
+    await searchInput.fill("");
+    await searchInput.fill(sport);
+    // Wait for the SPA to filter results.
+    await page.waitForTimeout(1200);
+    log(`Search bar filled with "${sport}", waiting for results`);
+    return true;
+  }
+
+  log("No search bar found on the page, will scan cards directly");
+  return false;
 }
 
 async function openSportCardAndSlotList(page, sport, log) {
-  const cards = page
-    .locator(':is(div,article,section)')
-    .filter({ has: page.locator('button:has-text("View Slots"), a:has-text("View Slots")') });
-
+  const variants = getSportVariants(sport);
   const targetSport = normalizeText(sport);
+  const sportTextMatchers = [targetSport, ...variants].filter(Boolean);
 
+  // Step 1: Use search bar to filter sports (works for all sports).
+  await searchAndFilterSport(page, sport, log);
+
+  // Step 2: Find the matching card's "View Slots" button.
+  const viewSlotsSelectors = [
+    'button:has-text("View Slots")',
+    'a:has-text("View Slots")',
+    'button:has-text("View slot")',
+    'a:has-text("View slot")',
+    '[role="button"]:has-text("View Slots")',
+    '[role="button"]:has-text("View slot")',
+  ];
+
+  // Strategy A: Walk up from each "View Slots" button to its parent card and match text.
+  for (const selector of viewSlotsSelectors) {
+    const buttons = page.locator(selector);
+    const count = await buttons.count();
+
+    for (let i = 0; i < count; i += 1) {
+      const btn = buttons.nth(i);
+      if (!(await btn.isVisible().catch(() => false))) continue;
+
+      // Walk up 1-3 ancestor containers to check card text.
+      for (let depth = 1; depth <= 3; depth += 1) {
+        const ancestor = btn.locator(`xpath=ancestor::*[self::div or self::article or self::section][${depth}]`).first();
+        if (!(await ancestor.count().catch(() => 0))) continue;
+
+        const cardText = normalizeText(await ancestor.innerText().catch(() => ""));
+        if (!cardText) continue;
+
+        if (sportTextMatchers.some((token) => token && cardText.includes(token))) {
+          await btn.click({ timeout: 3000 }).catch(() => null);
+          log(`Opened slot list for "${sport}" via search + card match`);
+          await page.waitForLoadState("domcontentloaded", { timeout: 10_000 }).catch(() => null);
+          return true;
+        }
+      }
+    }
+  }
+
+  // Strategy B: Scan all container elements for matching text + View Slots button.
+  const cards = page.locator(':is(div,article,section)');
   for (let i = 0; i < (await cards.count()); i += 1) {
     const card = cards.nth(i);
     const cardText = normalizeText(await card.innerText().catch(() => ""));
 
-    if (!cardText.includes(targetSport)) {
-      continue;
-    }
+    if (!sportTextMatchers.some((token) => token && cardText.includes(token))) continue;
 
-    const viewSlotsButton = card.locator('button:has-text("View Slots"), a:has-text("View Slots")').first();
-    if (!(await viewSlotsButton.count())) {
-      continue;
-    }
+    const viewSlotsButton = card.locator(viewSlotsSelectors.join(", ")).first();
+    if (!(await viewSlotsButton.count())) continue;
 
     await viewSlotsButton.click({ timeout: 3000 });
-    log(`Opened slot list for sport card: ${sport}`);
+    log(`Opened slot list for "${sport}" via card scan`);
     await page.waitForLoadState("domcontentloaded", { timeout: 10_000 }).catch(() => null);
     return true;
   }
 
+  await logDomProbe(page, log, `sport-not-found:${sport}`);
   return false;
 }
 
@@ -248,14 +364,24 @@ export async function runBookingAgent(task, logger, options = {}) {
       loginButton.click({ timeout: 2000 }),
     ]);
 
+    // Give SPA auth flows a brief chance to redirect.
+    await page.waitForTimeout(1500);
+
     const loginFailureSignals = ["invalid", "incorrect", "try again", "failed"];
     const bodyText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
     if (loginFailureSignals.some((word) => bodyText.includes(word))) {
       throw new Error("Login failed: website reported invalid credentials");
     }
 
+    const postLoginUrl = page.url();
+    const stillOnLoginRoute = /\/login(?:[/?#]|$)/i.test(postLoginUrl);
+    const hasVisiblePasswordInput = await page.locator('input[type="password"], input[name*="pass" i], #password').first().isVisible().catch(() => false);
+    if (stillOnLoginRoute && hasVisiblePasswordInput) {
+      throw new Error("Login did not complete: still on login page (credentials invalid or extra verification required)");
+    }
+
     logger.push("Authentication check passed");
-    await navigateToBookingSection(page, (msg, level) => logger.push(msg, level));
+    await navigateToSportsListing(page, task.websiteUrl, (msg, level) => logger.push(msg, level));
 
     const retryDeadline = Date.now() + SLOT_RETRY_WINDOW_MS;
     let result = { outcome: "slot-not-visible" };
@@ -266,6 +392,8 @@ export async function runBookingAgent(task, logger, options = {}) {
       }
 
       logger.push(`Checking sport ${task.sport} and slot ${task.slotTime} at epoch ${Date.now()}`);
+      // Navigate directly to the sports listing URL — never click nav buttons.
+      await navigateToSportsListing(page, task.websiteUrl, (msg, level) => logger.push(msg, level));
       result = await tryBookSlot(page, task.sport, task.slotTime, (msg, level) => logger.push(msg, level));
 
       if (result.outcome === "booked") {
@@ -299,7 +427,7 @@ export async function runBookingAgent(task, logger, options = {}) {
 
       logger.push("Slot not ready yet, retrying in 2 seconds");
       await page.waitForTimeout(SLOT_RETRY_INTERVAL_MS);
-      await page.reload({ waitUntil: "domcontentloaded" }).catch(() => null);
+      // Go back to sports listing for the next attempt (no reload — avoids staying on wrong page).
     }
 
     if (result.outcome !== "booked") {
@@ -310,10 +438,22 @@ export async function runBookingAgent(task, logger, options = {}) {
             ? `Could not find slot ${task.slotTime} on the page`
             : "Booking did not complete";
 
+      let failShot = null;
+      try {
+        failShot = `task-${task.id}-failure-${Date.now()}.png`;
+        const failHtml = `task-${task.id}-failure-${Date.now()}.html`;
+        await page.screenshot({ path: path.join(screenshotDir, failShot), fullPage: true }).catch(() => null);
+        await fs.writeFile(path.join(screenshotDir, failHtml), await page.content().catch(() => "")).catch(() => null);
+        logger.push(`Saved failure screenshot: ${failShot}`);
+        logger.push(`Saved failure page HTML: ${failHtml}`);
+      } catch {
+        failShot = null;
+      }
+
       return {
         status: result.outcome === "unavailable" ? "unavailable" : "failed",
         reason,
-        screenshotPath: null,
+        screenshotPath: failShot,
       };
     }
 
@@ -325,7 +465,20 @@ export async function runBookingAgent(task, logger, options = {}) {
     return { status: "success", reason: "Booking confirmed", screenshotPath: screenshotFile };
   } catch (error) {
     logger.push(`Bot error: ${error.message}`, "error");
-    return { status: "failed", reason: error.message, screenshotPath: null };
+    try {
+      const failShot = `task-${task.id}-failure-${Date.now()}.png`;
+      const failHtml = `task-${task.id}-failure-${Date.now()}.html`;
+      const shotPath = path.join(screenshotDir, failShot);
+      const htmlPath = path.join(screenshotDir, failHtml);
+      await page.screenshot({ path: shotPath, fullPage: true }).catch(() => null);
+      const body = await page.content().catch(() => "");
+      await fs.writeFile(htmlPath, body).catch(() => null);
+      logger.push(`Saved failure screenshot: ${failShot}`);
+      logger.push(`Saved failure page HTML: ${failHtml}`);
+      return { status: "failed", reason: error.message, screenshotPath: failShot };
+    } catch (inner) {
+      return { status: "failed", reason: error.message, screenshotPath: null };
+    }
   } finally {
     await browser.close();
   }
