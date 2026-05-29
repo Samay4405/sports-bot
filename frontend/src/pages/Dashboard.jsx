@@ -3,6 +3,7 @@ import { deleteTask, fetchRunHistory, getWsUrl, listTasks, runTask, saveTask } f
 import TaskForm from "../components/TaskForm";
 import LogViewer from "../components/LogViewer";
 import HistoryTable from "../components/HistoryTable";
+import TaskLogs from "../components/TaskLogs";
 
 export default function Dashboard() {
   const [tasks, setTasks] = useState([]);
@@ -10,6 +11,7 @@ export default function Dashboard() {
   const [logs, setLogs] = useState([]);
   const [busy, setBusy] = useState(false);
   const [statusText, setStatusText] = useState("Ready");
+  const [selectedTaskId, setSelectedTaskId] = useState("");
 
   const latestLogs = useMemo(() => logs.slice(-120), [logs]);
 
@@ -106,8 +108,9 @@ export default function Dashboard() {
           onSave={handleSaveTask}
           onRunNow={handleRunTask}
           onDelete={handleDeleteTask}
+          onSelectTask={(id) => setSelectedTaskId(id)}
         />
-        <LogViewer logs={latestLogs} />
+        {selectedTaskId ? <TaskLogs runs={runs} selectedTaskId={selectedTaskId} /> : <LogViewer logs={latestLogs} />}
       </section>
 
       <section className="mt-5">

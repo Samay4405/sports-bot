@@ -35,6 +35,7 @@ export default function TaskForm({
   onRunNow,
   onDelete,
   busy,
+  onSelectTask,
 }) {
   const [form, setForm] = useState(() => currentTask || EMPTY_FORM);
 
@@ -52,11 +53,13 @@ export default function TaskForm({
   const loadTask = (taskId) => {
     if (!taskId) {
       setForm(EMPTY_FORM);
+      if (onSelectTask) onSelectTask("");
       return;
     }
     const selected = tasks.find((task) => task.id === taskId);
     if (selected) {
       setForm({ ...selected, password: "", customSport: "", customSlotTime: "" });
+      if (onSelectTask) onSelectTask(taskId);
     }
   };
 
