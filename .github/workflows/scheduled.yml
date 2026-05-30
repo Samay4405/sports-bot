@@ -1,9 +1,14 @@
 name: Scheduled Sports Booking
 
 on:
-  # Runs every day at 23:30 UTC, which is 05:00 IST next day.
+  # Multiple triggers to cover different task times and guard against GitHub delays.
+  # The script uses time-window matching (3hr) so late triggers still pick up tasks.
   schedule:
-    - cron: "30 23 * * *"
+    - cron: "30 23 * * *"   # 05:00 IST — main morning run
+    - cron: "0 0 * * *"     # 05:30 IST — backup for morning tasks
+    - cron: "30 0 * * *"    # 06:00 IST — second backup for morning tasks
+    - cron: "0 6 * * *"     # 11:30 IST — midday run
+    - cron: "30 6 * * *"    # 12:00 IST — backup for midday tasks
 
   # Allows manual trigger from the Actions tab for testing.
   workflow_dispatch:
