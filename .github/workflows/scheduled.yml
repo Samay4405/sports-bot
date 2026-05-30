@@ -2,11 +2,12 @@ name: Scheduled Sports Booking
 
 on:
   # Multiple triggers to cover different task times and guard against GitHub delays.
-  # The script uses time-window matching (3hr) so late triggers still pick up tasks.
+  # The script uses time-window matching (-3hr/+45min) and sleeps until the exact
+  # trigger time if it wakes up early, so cron can safely fire BEFORE the task time.
   schedule:
-    - cron: "30 23 * * *"   # 05:00 IST — main morning run
-    - cron: "0 0 * * *"     # 05:30 IST — backup for morning tasks
-    - cron: "30 0 * * *"    # 06:00 IST — second backup for morning tasks
+    - cron: "45 22 * * *"   # 04:15 IST — primary (wakes ~04:55, waits for 05:00)
+    - cron: "15 23 * * *"   # 04:45 IST — backup morning trigger
+    - cron: "30 23 * * *"   # 05:00 IST — second backup
     - cron: "0 6 * * *"     # 11:30 IST — midday run
     - cron: "30 6 * * *"    # 12:00 IST — backup for midday tasks
 

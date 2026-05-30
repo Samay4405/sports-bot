@@ -37,21 +37,34 @@ function hhmmToMinutes(hhmm) {
 
 /**
  * Check if a task's triggerTime falls within the allowed window.
- * Returns true if triggerTime is at most `windowMinutes` BEFORE the current time.
- * Example: current=06:57, trigger=05:00, window=180 → 05:00 is 117 min before 06:57 → true
- * Example: current=06:57, trigger=11:30, window=180 → 11:30 is in the future → false
+ * Looks BACKWARD (up to `backwardMin`) for late triggers,
+ * and FORWARD (up to `forwardMin`) for early triggers.
+ *
+ * Returns { match: boolean, waitMs: number }
+ *   - match: true if the trigger time is within the combined window
+ *   - waitMs: milliseconds to wait before executing (0 if trigger is in the past)
  */
-function isWithinWindow(triggerHHmm, currentHHmm, windowMinutes = 180) {
+function isWithinWindow(triggerHHmm, currentHHmm, backwardMin = 180, forwardMin = 45) {
   const triggerMin = hhmmToMinutes(triggerHHmm);
   const currentMin = hhmmToMinutes(currentHHmm);
 
-  // How many minutes ago was the trigger time?
+  // Difference: positive = trigger is in the past, negative = trigger is in the future.
   let diff = currentMin - triggerMin;
   // Handle midnight wraparound (e.g., current=01:00, trigger=23:30)
-  if (diff < 0) diff += 1440;
+  if (diff < -720) diff += 1440;    // trigger looks far future but is actually past midnight
+  if (diff > 720) diff -= 1440;     // trigger looks far past but is actually near midnight
 
-  // Trigger must be in the past (diff >= 0) and within the window.
-  return diff >= 0 && diff <= windowMinutes;
+  if (diff >= 0 && diff <= backwardMin) {
+    // Trigger was in the past, within backward window → run immediately.
+    return { match: true, waitMs: 0 };
+  }
+
+  if (diff < 0 && Math.abs(diff) <= forwardMin) {
+    // Trigger is in the future, within forward window → wait until trigger time.
+    return { match: true, waitMs: Math.abs(diff) * 60 * 1000 };
+  }
+
+  return { match: false, waitMs: 0 };
 }
 
 /** Get today's date string in IST (YYYY-MM-DD) for duplicate-run checking. */
@@ -118,8 +131,9 @@ async function main() {
   const onlyTaskId = String(process.env.RUN_ONLY_TASK_ID || "").trim();
   const ignoreTriggerTime = parseBool(process.env.RUN_IGNORE_TRIGGER_TIME);
   // How far back (in minutes) to look for tasks whose triggerTime has passed.
-  // Default 180 min (3 hours) to handle GitHub Actions cron delays.
-  const windowMinutes = parseInt(process.env.TRIGGER_WINDOW_MINUTES || "180", 10);
+  const backwardMin = parseInt(process.env.TRIGGER_WINDOW_BACKWARD || "180", 10);
+  // How far forward (in minutes) to look — bot will WAIT until the trigger time.
+  const forwardMin = parseInt(process.env.TRIGGER_WINDOW_FORWARD || "45", 10);
 
   if (ignoreTriggerTime && !onlyTaskId) {
     throw new Error(
@@ -136,7 +150,7 @@ async function main() {
     throw new Error(`RUN_TARGET_IST_HHMM must be in HH:MM format, received: ${currentIst}`);
   }
 
-  console.log(`[scheduler] Current IST time: ${currentIst} | Window: ${windowMinutes} minutes`);
+  console.log(`[scheduler] Current IST time: ${currentIst} | Window: -${backwardMin}min / +${forwardMin}min`);
   if (onlyTaskId) {
     console.log(`[scheduler] Task filter enabled: ${onlyTaskId}`);
   }
@@ -154,25 +168,28 @@ async function main() {
   });
 
   // Filter tasks using time-window matching (unless ignoring trigger time).
+  // Each matched task also gets a `waitMs` indicating if the bot should sleep first.
   let tasks;
   if (ignoreTriggerTime) {
-    tasks = allTasks;
+    tasks = allTasks.map((t) => ({ ...t, _waitMs: 0 }));
   } else {
-    tasks = allTasks.filter((t) => {
-      if (!isValidHHmm(t.triggerTime)) return false;
-      const inWindow = isWithinWindow(t.triggerTime, currentIst, windowMinutes);
-      if (inWindow) {
-        console.log(`[scheduler] Task ${t.id} (${t.sport}, trigger ${t.triggerTime}) is within window`);
+    tasks = [];
+    for (const t of allTasks) {
+      if (!isValidHHmm(t.triggerTime)) continue;
+      const { match, waitMs } = isWithinWindow(t.triggerTime, currentIst, backwardMin, forwardMin);
+      if (match) {
+        const action = waitMs > 0 ? `will wait ${Math.round(waitMs / 60000)} min` : "run now";
+        console.log(`[scheduler] Task ${t.id} (${t.sport}, trigger ${t.triggerTime}) → ${action}`);
+        tasks.push({ ...t, _waitMs: waitMs });
       }
-      return inWindow;
-    });
+    }
   }
 
   if (tasks.length === 0) {
-    console.log(`[scheduler] No due tasks found within ${windowMinutes}-min window of ${currentIst}. Exiting.`);
+    console.log(`[scheduler] No due tasks found within window [-${backwardMin}min / +${forwardMin}min] of ${currentIst}. Exiting.`);
     await appendStepSummary([
       "## Scheduled Sports Booking",
-      `- No due tasks found within ${windowMinutes}-min window of IST ${currentIst}.`,
+      `- No due tasks found within window of IST ${currentIst}.`,
     ]);
     return;
   }
@@ -214,6 +231,14 @@ async function main() {
   let failedCount = 0;
 
   for (const task of tasks) {
+    // If the trigger time is in the future, sleep until exactly that time.
+    if (task._waitMs > 0) {
+      const waitMin = Math.round(task._waitMs / 60000);
+      console.log(`[scheduler] ⏳ Task ${task.id} (${task.sport}) — sleeping ${waitMin} min until trigger time ${task.triggerTime} IST...`);
+      await new Promise((resolve) => setTimeout(resolve, task._waitMs));
+      console.log(`[scheduler] ⏰ Wake up! Executing task ${task.id} now at IST ${getCurrentIstHHmm()}`);
+    }
+
     console.log(`[scheduler] Running task ${task.id} (${task.sport} at ${task.slotTime})`);
 
     try {
