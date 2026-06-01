@@ -1,15 +1,12 @@
 name: Scheduled Sports Booking
 
 on:
-  # Multiple triggers to cover different task times and guard against GitHub delays.
-  # The script uses time-window matching (-3hr/+45min) and sleeps until the exact
-  # trigger time if it wakes up early, so cron can safely fire BEFORE the task time.
+  # Fire every 15 minutes during booking hours (22:00-07:00 UTC = 03:30-12:30 IST).
+  # The script uses time-window matching + duplicate-run prevention internally,
+  # so frequent triggers are safe — tasks only execute ONCE per day.
   schedule:
-    - cron: "45 22 * * *"   # 04:15 IST — primary (wakes ~04:55, waits for 05:00)
-    - cron: "15 23 * * *"   # 04:45 IST — backup morning trigger
-    - cron: "30 23 * * *"   # 05:00 IST — second backup
-    - cron: "0 6 * * *"     # 11:30 IST — midday run
-    - cron: "30 6 * * *"    # 12:00 IST — backup for midday tasks
+    - cron: "*/15 22-23 * * *"  # 03:30 AM – 05:30 AM IST window
+    - cron: "*/15 0-7 * * *"    # 05:30 AM – 12:30 PM IST window
 
   # Allows manual trigger from the Actions tab for testing.
   workflow_dispatch:
@@ -90,6 +87,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: booking-screenshots
+          name: booking-screenshots-${{ github.run_id }}-${{ github.run_attempt }}
           path: backend/screenshots
           if-no-files-found: ignore
