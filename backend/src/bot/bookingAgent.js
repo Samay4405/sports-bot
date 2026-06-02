@@ -114,8 +114,16 @@ async function navigateToSportsListing(page, websiteUrl, log) {
   const sportsUrl = getSportsListingUrl(websiteUrl);
   const currentUrl = page.url();
 
-  // Already on the sports listing page — no need to navigate.
-  if (currentUrl.includes("/sports") && !currentUrl.includes("/sports/")) {
+  // Check the URL PATHNAME, not the full URL (the domain 'sports.mitwpu.edu.in' contains 'sports').
+  let pathname;
+  try {
+    pathname = new URL(currentUrl).pathname;
+  } catch {
+    pathname = "";
+  }
+
+  // Already on /sports (but not /sports/<uuid>/slots).
+  if (pathname === "/sports" || pathname === "/sports/") {
     log(`Already on sports listing: ${currentUrl}`);
     return;
   }
@@ -123,7 +131,7 @@ async function navigateToSportsListing(page, websiteUrl, log) {
   log(`Navigating directly to sports listing: ${sportsUrl}`);
   await page.goto(sportsUrl, { waitUntil: "domcontentloaded", timeout: 15_000 }).catch(() => null);
   // Wait for the sport cards / search bar to render (SPA hydration).
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(2000);
   log(`Navigation complete, now at: ${page.url()}`);
 }
 
@@ -353,31 +361,51 @@ export async function runBookingAgent(task, logger, options = {}) {
     await usernameInput.fill(task.username);
     await passwordInput.fill(task.decryptedPassword);
 
-    const loginButton = await firstVisibleLocator(page, LOGIN_BUTTON_SELECTORS);
+    let loginButton = await firstVisibleLocator(page, LOGIN_BUTTON_SELECTORS);
     if (!loginButton) {
       throw new Error("Unable to locate login button");
     }
 
     logger.push("Submitting login form");
-    await Promise.allSettled([
-      page.waitForLoadState("networkidle", { timeout: 10_000 }),
-      loginButton.click({ timeout: 2000 }),
-    ]);
 
-    // Give SPA auth flows a brief chance to redirect.
-    await page.waitForTimeout(1500);
+    // Login with retries — GitHub Actions runners can be slow.
+    let loginSuccess = false;
+    for (let loginAttempt = 1; loginAttempt <= 3; loginAttempt++) {
+      await Promise.allSettled([
+        page.waitForLoadState("networkidle", { timeout: 15_000 }),
+        loginButton.click({ timeout: 3000 }),
+      ]);
 
-    const loginFailureSignals = ["invalid", "incorrect", "try again", "failed"];
-    const bodyText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
-    if (loginFailureSignals.some((word) => bodyText.includes(word))) {
-      throw new Error("Login failed: website reported invalid credentials");
+      // Give SPA auth flows time to redirect.
+      await page.waitForTimeout(3000);
+
+      const postLoginUrl = page.url();
+      const stillOnLoginRoute = /\/login(?:[/?#]|$)/i.test(postLoginUrl);
+      const hasVisiblePasswordInput = await page.locator('input[type="password"], input[name*="pass" i], #password').first().isVisible().catch(() => false);
+
+      if (!stillOnLoginRoute || !hasVisiblePasswordInput) {
+        loginSuccess = true;
+        break;
+      }
+
+      logger.push(`Login attempt ${loginAttempt} — still on login page, retrying...`, "warn");
+      await page.waitForTimeout(2000);
+
+      // Re-locate and re-click the login button for retry.
+      const retryLoginBtn = await firstVisibleLocator(page, LOGIN_BUTTON_SELECTORS);
+      if (retryLoginBtn) {
+        loginButton = retryLoginBtn;
+      }
     }
 
-    const postLoginUrl = page.url();
-    const stillOnLoginRoute = /\/login(?:[/?#]|$)/i.test(postLoginUrl);
-    const hasVisiblePasswordInput = await page.locator('input[type="password"], input[name*="pass" i], #password').first().isVisible().catch(() => false);
-    if (stillOnLoginRoute && hasVisiblePasswordInput) {
-      throw new Error("Login did not complete: still on login page (credentials invalid or extra verification required)");
+    if (!loginSuccess) {
+      // Check for explicit error messages before giving up.
+      const loginFailureSignals = ["invalid", "incorrect", "try again", "failed"];
+      const bodyText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
+      if (loginFailureSignals.some((word) => bodyText.includes(word))) {
+        throw new Error("Login failed: website reported invalid credentials");
+      }
+      throw new Error("Login did not complete after 3 attempts: still on login page");
     }
 
     logger.push("Authentication check passed");
