@@ -229,15 +229,25 @@ async function openSportCardAndSlotList(page, sport, log) {
 }
 
 async function openRequestedSlotSpots(page, slotLabel, log) {
-  const slotCards = page
-    .locator(':is(div,article,section)')
-    .filter({ has: page.locator('button:has-text("View Spots"), a:has-text("View Spots")') });
+  // Wait for the slot cards to actually render (SPA network request delay)
+  await page.waitForTimeout(2000);
 
   const normalizedTarget = normalizeText(slotLabel);
+  
+  // Get all buttons containing "View Spots"
+  const viewSpotsButtons = page.locator('button:has-text("View Spots"), a:has-text("View Spots")');
+  const count = await viewSpotsButtons.count();
 
-  for (let i = 0; i < (await slotCards.count()); i += 1) {
-    const card = slotCards.nth(i);
-    const text = normalizeText(await card.innerText().catch(() => ""));
+  for (let i = 0; i < count; i++) {
+    const btn = viewSpotsButtons.nth(i);
+    // Find the closest parent div that looks like a card (has border or shadow, or just grab the parent that contains the slot text)
+    // A simple approach in Playwright is to check the text of the parent node
+    const card = btn.locator('xpath=./ancestor::div[not(div/div/div)][1]');
+    
+    // Instead of xpath, we can just get the text of the parent container that has this button
+    const cardContainer = btn.locator('xpath=./ancestor::div[contains(@class, "border") or contains(@class, "rounded")][1]');
+    
+    const text = normalizeText(await cardContainer.innerText().catch(() => ""));
 
     if (!text.includes(normalizedTarget)) {
       continue;
@@ -247,12 +257,14 @@ async function openRequestedSlotSpots(page, slotLabel, log) {
       return { outcome: "unavailable" };
     }
 
-    const viewSpotsButton = card.locator('button:has-text("View Spots"), a:has-text("View Spots")').first();
-    if (!(await viewSpotsButton.count())) {
+    const isDisabled = await btn.isDisabled().catch(() => false);
+    if (isDisabled) {
+      log(`Slot "${slotLabel}" found but button is disabled (Outside Booking Hours). Polling...`);
+      // Slot is outside booking hours or disabled, we should keep polling
       return { outcome: "slot-not-visible" };
     }
 
-    await viewSpotsButton.click({ timeout: 3000 });
+    await btn.click({ timeout: 3000 }).catch(() => null);
     log(`Opened spots for slot label: ${slotLabel}`);
     await page.waitForLoadState("domcontentloaded", { timeout: 10_000 }).catch(() => null);
     return { outcome: "opened" };
