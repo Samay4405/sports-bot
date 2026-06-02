@@ -66,6 +66,11 @@ jobs:
         working-directory: backend
         run: npm run prisma:generate:postgres
 
+      # Step 5.5: Wake up Neon Serverless DB to prevent connection timeouts.
+      - name: Wake up Database
+        working-directory: backend
+        run: node src/scripts/wake-db.js
+
       # Step 6: Apply committed migrations in non-interactive CI mode.
       - name: Run database migrations
         working-directory: backend
