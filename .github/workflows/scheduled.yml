@@ -1,12 +1,12 @@
 name: Scheduled Sports Booking
 
 on:
-  # Fire every 15 minutes during booking hours (22:00-07:00 UTC = 03:30-12:30 IST).
+  # Fire every 15 minutes during booking hours (22:00-12:00 UTC = 03:30-17:30 IST).
   # The script uses time-window matching + duplicate-run prevention internally,
   # so frequent triggers are safe — tasks only execute ONCE per day.
   schedule:
     - cron: "*/15 22-23 * * *"  # 03:30 AM – 05:30 AM IST window
-    - cron: "*/15 0-7 * * *"    # 05:30 AM – 12:30 PM IST window
+    - cron: "*/15 0-12 * * *"   # 05:30 AM – 05:30 PM IST window
 
   # Allows manual trigger from the Actions tab for testing.
   workflow_dispatch:
