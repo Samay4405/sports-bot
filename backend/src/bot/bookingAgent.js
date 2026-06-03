@@ -265,8 +265,14 @@ async function openRequestedSlotSpots(page, slotLabel, log) {
     }
 
     await btn.click({ timeout: 3000 }).catch(() => null);
-    log(`Opened spots for slot label: ${slotLabel}`);
-    await page.waitForLoadState("domcontentloaded", { timeout: 10_000 }).catch(() => null);
+    log(`Clicked "View Spots" for slot: ${slotLabel}`);
+    
+    // Wait for the seats/spots page to fully load (SPA navigation + data fetch).
+    await page.waitForTimeout(3000);
+    await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => null);
+    await page.waitForTimeout(2000);
+    
+    log(`Spots page loaded, now at: ${page.url()}`);
     return { outcome: "opened" };
   }
 
@@ -274,11 +280,26 @@ async function openRequestedSlotSpots(page, slotLabel, log) {
 }
 
 async function chooseAnyAvailableSpotAndConfirm(page, log) {
-  const spotButtons = page
-    .locator("button")
-    .filter({ hasText: /^\s*\d+\s*$/ });
+  // Wait for the numbered spot buttons to appear (they load via SPA fetch).
+  // Retry a few times since the page may still be rendering.
+  let spotButtons;
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    spotButtons = page
+      .locator("button")
+      .filter({ hasText: /^\s*\d+\s*$/ });
+    
+    const count = await spotButtons.count();
+    if (count > 0) {
+      log(`Found ${count} spot buttons on attempt ${attempt}`);
+      break;
+    }
+    
+    log(`No spot buttons found (attempt ${attempt}/5), waiting 2s...`);
+    await page.waitForTimeout(2000);
+  }
 
   if (!(await spotButtons.count())) {
+    log("No numbered spot buttons found after 5 attempts", "warn");
     return { outcome: "slot-not-visible" };
   }
 
@@ -294,38 +315,53 @@ async function chooseAnyAvailableSpotAndConfirm(page, log) {
     }
 
     const candidateText = (await button.innerText().catch(() => "")).trim();
+    log(`Clicking spot ${candidateText}...`);
     await button.click({ timeout: 3000 }).catch(() => null);
 
+    // Wait for the confirmation modal to appear.
+    await page.waitForTimeout(1500);
+
     const modal = page
-      .locator(':is(div,section,article):has-text("Confirm Your Booking")')
+      .locator(':is(div,section,article,dialog):has-text("Confirm Your Booking")')
       .first();
 
-    if (!(await modal.count())) {
+    const modalVisible = await modal.isVisible().catch(() => false);
+    if (!modalVisible) {
+      log(`No confirmation modal appeared for spot ${candidateText}, trying next`);
       continue;
     }
 
-    const termsCheckbox = modal
+    log(`Confirmation modal appeared for spot ${candidateText}`);
+
+    // Check the "I agree to Terms & Conditions" checkbox.
+    const termsCheckbox = page
       .locator(
-        'input[type="checkbox"], label:has-text("I agree"):has(input), [role="checkbox"]'
+        'button[role="checkbox"], input[type="checkbox"], [role="checkbox"]'
       )
       .first();
 
     if (await termsCheckbox.count()) {
       await termsCheckbox.click({ timeout: 2000 }).catch(() => null);
+      log("Checked terms & conditions checkbox");
+      await page.waitForTimeout(500);
     }
 
-    const confirmButton = modal.locator('button:has-text("Confirm")').first();
+    const confirmButton = page.locator('button:has-text("Confirm")').first();
     if (!(await confirmButton.count())) {
+      log("Confirm button not found in modal", "warn");
       continue;
     }
 
+    // Wait for Confirm button to become enabled after checkbox.
+    await page.waitForTimeout(500);
     if (!(await confirmButton.isEnabled().catch(() => false))) {
+      log("Confirm button is disabled even after checking terms", "warn");
       continue;
     }
 
     await confirmButton.click({ timeout: 3000 });
     log(`Booked spot number ${candidateText}`);
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(2000);
     return { outcome: "booked" };
   }
 
