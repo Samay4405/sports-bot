@@ -42,6 +42,17 @@ function normalizeText(value) {
     .toLowerCase();
 }
 
+/**
+ * Extract the start time from a slot label like "10:00 AM – 10:40 AM".
+ * Returns normalized string like "10:00 am" or null if parsing fails.
+ */
+function extractStartTime(slotLabel) {
+  const normalized = normalizeText(slotLabel);
+  // Match patterns like "10:00 am", "5:00 pm", etc. at the start of the string
+  const match = normalized.match(/(\d{1,2}:\d{2}\s*(?:am|pm))/);
+  return match ? match[1].replace(/\s+/g, ' ') : null;
+}
+
 function getSportVariants(sport) {
   const base = normalizeText(sport);
   const variants = new Set([base]);
@@ -233,6 +244,7 @@ async function openRequestedSlotSpots(page, slotLabel, log) {
   await page.waitForTimeout(2000);
 
   const normalizedTarget = normalizeText(slotLabel);
+  const targetStartTime = extractStartTime(slotLabel);
   
   // Get all buttons containing "View Spots"
   const viewSpotsButtons = page.locator('button:has-text("View Spots"), a:has-text("View Spots")');
@@ -249,7 +261,17 @@ async function openRequestedSlotSpots(page, slotLabel, log) {
     
     const text = normalizeText(await cardContainer.innerText().catch(() => ""));
 
-    if (!text.includes(normalizedTarget)) {
+    // Fuzzy match: first try exact match, then fall back to start-time match.
+    let matched = text.includes(normalizedTarget);
+    if (!matched && targetStartTime) {
+      const cardStartTime = extractStartTime(text);
+      if (cardStartTime && cardStartTime === targetStartTime) {
+        log(`Fuzzy match: user entered "${slotLabel}" → matched card starting at "${targetStartTime}"`);
+        matched = true;
+      }
+    }
+
+    if (!matched) {
       continue;
     }
 
