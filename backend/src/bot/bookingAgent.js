@@ -275,14 +275,30 @@ async function openRequestedSlotSpots(page, slotLabel, log) {
       continue;
     }
 
-    if (text.includes("ended") || text.includes("full") || text.includes("unavailable")) {
-      return { outcome: "unavailable" };
+    // IMPORTANT: If this matched card is already ended/full, SKIP it and keep searching.
+    // The page may show yesterday's ended slot AND today's open slot with the same start time.
+    // Returning immediately here was the bug causing Swimming Pool to always fail.
+    if (text.includes("ended")) {
+      log(`Skipping matched card — slot is marked Ended. Looking for today's open card...`);
+      continue;
     }
+    if (text.includes("full")) {
+      log(`Skipping matched card — slot is Full. Looking for another...`);
+      continue;
+    }
+
+    // Log the full card status for diagnostics (gender restriction, Outside Booking Hours, etc.)
+    log(`Matched slot card text: "${text.substring(0, 120)}"`);
 
     const isDisabled = await btn.isDisabled().catch(() => false);
     if (isDisabled) {
+      // Check if this is genuinely outside booking hours OR a gender/eligibility restriction.
+      const isGenderRestricted = text.includes("male") || text.includes("female") || text.includes("gender");
+      if (isGenderRestricted) {
+        log(`Slot "${slotLabel}" is gender-restricted (card shows: ${text.substring(0, 80)}). Cannot book — skipping.`, "warn");
+        return { outcome: "unavailable" };
+      }
       log(`Slot "${slotLabel}" found but button is disabled (Outside Booking Hours). Polling...`);
-      // Slot is outside booking hours or disabled, we should keep polling
       return { outcome: "slot-not-visible" };
     }
 
