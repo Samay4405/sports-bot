@@ -6,38 +6,42 @@ import path from 'path';
 
 const prisma = new PrismaClient();
 
-async function testBooking() {
+async function testSwimmingPool() {
   const tasks = await prisma.task.findMany();
-  const task = tasks.find(t => t.sport.includes('Carrom'));
-  
-  if (!task) {
-    console.error("Task not found");
+  const anyTask = tasks[0];
+
+  if (!anyTask) {
+    console.error("No tasks found in DB");
     return;
   }
-  
-  console.log(`Running test for ${task.sport}...`);
-  
+
+  // Test the 5:00 PM Swimming Pool slot (currently open per screenshot)
+  const testTask = {
+    ...anyTask,
+    sport: "Swimming Pool",
+    slotTime: "5:00 PM - 5:40 PM",
+    decryptedPassword: decryptText(anyTask.password),
+  };
+
+  console.log(`Testing Swimming Pool 5:00 PM slot (should be open right now)...`);
+
   const logger = new RunLogger({
-    taskId: task.id,
-    runId: "local-test",
+    taskId: "swim-test",
+    runId: "swim-test-live",
     emitter: null
   });
 
   const result = await runBookingAgent(
-    {
-      ...task,
-      decryptedPassword: decryptText(task.password),
-    },
+    testTask,
     logger,
-    {
-      screenshotDir: path.join(process.cwd(), "screenshots"),
-    }
+    { screenshotDir: path.join(process.cwd(), "screenshots") }
   );
-  
-  console.log("Result:", result);
-  console.log("Logs:");
+
+  console.log("\n=== RESULT ===");
+  console.log(JSON.stringify(result, null, 2));
+  console.log("\n=== ALL LOGS ===");
   const logsArr = JSON.parse(logger.toJSON());
   logsArr.forEach(l => console.log(`[${l.level}] ${l.message}`));
 }
 
-testBooking().finally(() => prisma.$disconnect());
+testSwimmingPool().finally(() => prisma.$disconnect());
