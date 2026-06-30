@@ -292,12 +292,9 @@ async function openRequestedSlotSpots(page, slotLabel, log) {
 
     const isDisabled = await btn.isDisabled().catch(() => false);
     if (isDisabled) {
-      // Check if this is genuinely outside booking hours OR a gender/eligibility restriction.
-      const isGenderRestricted = text.includes("male") || text.includes("female") || text.includes("gender");
-      if (isGenderRestricted) {
-        log(`Slot "${slotLabel}" is gender-restricted (card shows: ${text.substring(0, 80)}). Cannot book — skipping.`, "warn");
-        return { outcome: "unavailable" };
-      }
+      // Button is disabled = slot is outside booking hours. Keep polling until it opens.
+      // NOTE: "male"/"female" text on the card is just the gender label, NOT a restriction
+      // that prevents booking — the account can still book gender-labelled slots.
       log(`Slot "${slotLabel}" found but button is disabled (Outside Booking Hours). Polling...`);
       return { outcome: "slot-not-visible" };
     }
