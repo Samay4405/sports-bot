@@ -2,9 +2,9 @@ import path from "path";
 import fs from "fs/promises";
 import { chromium } from "playwright";
 
-const BOT_TIMEOUT_MS = 5 * 60 * 1000;
-const SLOT_RETRY_WINDOW_MS = 2 * 60 * 1000;
-const SLOT_RETRY_INTERVAL_MS = 2 * 1000;
+const BOT_TIMEOUT_MS = 7 * 60 * 1000;      // 7 min global timeout per task
+const SLOT_RETRY_WINDOW_MS = 5 * 60 * 1000; // retry for up to 5 min waiting for slot to open
+const SLOT_RETRY_INTERVAL_MS = 2 * 1000;    // check every 2 seconds
 
 const USERNAME_SELECTORS = [
   'input[name*="user" i]',
