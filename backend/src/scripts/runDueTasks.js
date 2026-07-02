@@ -205,6 +205,7 @@ async function main() {
       where: {
         taskId: task.id,
         executedAt: { gte: todayStart, lte: todayEnd },
+        status: { in: ['success', 'running'] },
       },
     });
     if (existingRun) {
