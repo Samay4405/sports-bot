@@ -1,0 +1,1 @@
+start "Sports Bot Backend" cmd /k "cd /d "%ROOT%backend" && npm run dev"

@@ -419,7 +419,7 @@ async function tryBookSlot(page, sport, slotTime, log) {
 }
 
 export async function runBookingAgent(task, logger, options = {}) {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({ headless: options.headless !== false });
   const screenshotDir = options.screenshotDir || path.join(process.cwd(), "screenshots");
   const startedAt = Date.now();
 
