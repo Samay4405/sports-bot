@@ -1,11 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
-
-const tasks = await prisma.task.findMany({
-  select: { id: true, sport: true, slotTime: true, triggerTime: true, enabled: true }
-});
-
-console.log('ALL TASKS:');
-tasks.forEach(t => console.log(JSON.stringify(t)));
-
+const all = await prisma.task.findMany();
+all.forEach(t => console.log(JSON.stringify({
+  id: t.id, sport: t.sport, slot: t.slotTime, trigger: t.triggerTime, enabled: t.enabled
+})));
 await prisma.$disconnect();

@@ -6,26 +6,34 @@ export default function createLogsRouter() {
 
   router.get("/", async (_req, res) => {
     const runs = await prisma.run.findMany({
-      include: {
-        task: {
-          select: {
-            sport: true,
-            slotTime: true,
-          },
-        },
-      },
       orderBy: {
         executedAt: "desc",
       },
       take: 100,
     });
 
+    const taskIds = [...new Set(runs.map((run) => run.taskId))];
+    const tasks = await prisma.task.findMany({
+      where: {
+        id: {
+          in: taskIds,
+        },
+      },
+      select: {
+        id: true,
+        sport: true,
+        slotTime: true,
+      },
+    });
+
+    const taskById = new Map(tasks.map((task) => [task.id, task]));
+
     const payload = runs.map((run) => ({
       id: run.id,
       taskId: run.taskId,
       date: run.executedAt,
-      sport: run.task?.sport || "Unknown",
-      slotTime: run.task?.slotTime || "Unknown",
+      sport: taskById.get(run.taskId)?.sport || "Unknown",
+      slotTime: taskById.get(run.taskId)?.slotTime || "Unknown",
       status: run.status,
       logs: JSON.parse(run.logs || "[]"),
       screenshotPath: run.screenshotPath,
