@@ -1,12 +1,12 @@
 name: Scheduled Sports Booking
 
 on:
-  # Single morning window — booking opens at 5:00 AM IST for ALL slots (entire day).
-  # Fires every 15 min from 5:00 AM to 7:15 AM IST as retry safety net.
-  # 5:00 AM IST = 23:30 UTC (previous day), 7:15 AM IST = 01:45 UTC
+  # Booking opens at 5:00 AM IST. First cron fires at 4:35 AM IST so the bot wakes early,
+  # waits via forwardMin logic, then executes at exactly 5:00 AM. Retries until 7:20 AM IST.
+  # 4:35 AM IST = 23:05 UTC | 7:20 AM IST = 01:50 UTC
   schedule:
-    - cron: "30,45 23 * * *"          # 05:00 AM – 05:15 AM IST  ← first shot at open
-    - cron: "0,15,30,45 0-1 * * *"    # 05:30 AM – 07:15 AM IST  ← retry window
+    - cron: "5,20,35,50 23 * * *"     # 04:35 AM – 05:20 AM IST
+    - cron: "5,20,35,50 0-1 * * *"    # 05:35 AM – 07:20 AM IST  (retry window)
 
   # Allows manual trigger from the Actions tab for testing.
   workflow_dispatch:
