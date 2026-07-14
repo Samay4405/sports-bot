@@ -1,16 +1,12 @@
 name: Scheduled Sports Booking
 
 on:
-  # Two precise booking windows (IST = UTC + 5:30):
-  #   Morning  : 04:50 AM – 05:30 AM IST  →  23:20–00:00 UTC  (5 AM Swimming Pool task)
-  #   Evening  : 05:00 PM – 07:00 PM IST  →  11:30–13:30 UTC  (5 PM Swimming Pool task)
-  # Each fires every 15 min. The scheduler script matches tasks by triggerTime ±60 min,
-  # so it won't double-fire outside the intended window.
+  # Single morning window — booking opens at 5:00 AM IST for ALL slots (entire day).
+  # Fires every 15 min from 5:00 AM to 7:15 AM IST as retry safety net.
+  # 5:00 AM IST = 23:30 UTC (previous day), 7:15 AM IST = 01:45 UTC
   schedule:
-    - cron: "20,35,50 23 * * *"       # 04:50 AM – 05:20 AM IST  (morning window)
-    - cron: "0,20 0 * * *"            # 05:30 AM – 05:50 AM IST  (morning tail)
-    - cron: "30,45 11 * * *"          # 05:00 PM – 05:15 PM IST  (evening start — book ASAP)
-    - cron: "0,15,30,45 12-13 * * *"  # 05:30 PM – 07:15 PM IST  (evening retry window)
+    - cron: "30,45 23 * * *"          # 05:00 AM – 05:15 AM IST  ← first shot at open
+    - cron: "0,15,30,45 0-1 * * *"    # 05:30 AM – 07:15 AM IST  ← retry window
 
   # Allows manual trigger from the Actions tab for testing.
   workflow_dispatch:
