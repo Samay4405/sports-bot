@@ -131,7 +131,7 @@ async function main() {
   const onlyTaskId = String(process.env.RUN_ONLY_TASK_ID || "").trim();
   const ignoreTriggerTime = parseBool(process.env.RUN_IGNORE_TRIGGER_TIME);
   // How far back (in minutes) to look for tasks whose triggerTime has passed.
-  const backwardMin = parseInt(process.env.TRIGGER_WINDOW_BACKWARD || "180", 10);
+  const backwardMin = parseInt(process.env.TRIGGER_WINDOW_BACKWARD || "60", 10);
   // How far forward (in minutes) to look — bot will WAIT until the trigger time.
   const forwardMin = parseInt(process.env.TRIGGER_WINDOW_FORWARD || "45", 10);
 

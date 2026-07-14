@@ -245,74 +245,89 @@ async function openRequestedSlotSpots(page, slotLabel, log) {
 
   const normalizedTarget = normalizeText(slotLabel);
   const targetStartTime = extractStartTime(slotLabel);
-  
-  // Get all buttons containing "View Spots"
-  const viewSpotsButtons = page.locator('button:has-text("View Spots"), a:has-text("View Spots")');
-  const count = await viewSpotsButtons.count();
 
-  for (let i = 0; i < count; i++) {
-    const btn = viewSpotsButtons.nth(i);
-    // Find the closest parent div that looks like a card (has border or shadow, or just grab the parent that contains the slot text)
-    // A simple approach in Playwright is to check the text of the parent node
-    const card = btn.locator('xpath=./ancestor::div[not(div/div/div)][1]');
-    
-    // Instead of xpath, we can just get the text of the parent container that has this button
-    const cardContainer = btn.locator('xpath=./ancestor::div[contains(@class, "border") or contains(@class, "rounded")][1]');
-    
-    const text = normalizeText(await cardContainer.innerText().catch(() => ""));
+  // Scroll through the page in steps so lazy-loaded / off-screen cards enter the DOM.
+  // We do multiple passes: scroll down incrementally, then check all buttons found so far.
+  const scrollSteps = 6;   // scroll up to ~3000px total
+  const scrollStep  = 500; // px per step
 
-    // Fuzzy match: first try exact match, then fall back to start-time match.
-    let matched = text.includes(normalizedTarget);
-    if (!matched && targetStartTime) {
-      const cardStartTime = extractStartTime(text);
-      if (cardStartTime && cardStartTime === targetStartTime) {
-        log(`Fuzzy match: user entered "${slotLabel}" → matched card starting at "${targetStartTime}"`);
-        matched = true;
+  for (let step = 0; step <= scrollSteps; step++) {
+    if (step > 0) {
+      await page.evaluate((px) => window.scrollBy(0, px), scrollStep);
+      await page.waitForTimeout(500); // let lazy content render
+    }
+
+    // Re-query every time so newly rendered cards are included.
+    const viewSpotsButtons = page.locator('button:has-text("View Spots"), a:has-text("View Spots")');
+    const count = await viewSpotsButtons.count();
+
+    for (let i = 0; i < count; i++) {
+      const btn = viewSpotsButtons.nth(i);
+
+      const cardContainer = btn.locator('xpath=./ancestor::div[contains(@class, "border") or contains(@class, "rounded")][1]');
+      const text = normalizeText(await cardContainer.innerText().catch(() => ""));
+
+      // Fuzzy match: exact match first, then fall back to start-time match.
+      let matched = text.includes(normalizedTarget);
+      if (!matched && targetStartTime) {
+        const cardStartTime = extractStartTime(text);
+        if (cardStartTime && cardStartTime === targetStartTime) {
+          log(`Fuzzy match: user entered "${slotLabel}" → matched card starting at "${targetStartTime}"`);
+          matched = true;
+        }
       }
-    }
 
-    if (!matched) {
-      continue;
-    }
+      if (!matched) continue;
 
-    // IMPORTANT: If this matched card is already ended/full, SKIP it and keep searching.
-    // The page may show yesterday's ended slot AND today's open slot with the same start time.
-    // Returning immediately here was the bug causing Swimming Pool to always fail.
-    if (text.includes("ended")) {
-      log(`Skipping matched card — slot is marked Ended. Looking for today's open card...`);
-      continue;
-    }
-    if (text.includes("full")) {
-      log(`Skipping matched card — slot is Full. Looking for another...`);
-      continue;
-    }
+      // Skip cards that are ended or full — keep scrolling for a fresh one.
+      if (text.includes("ended")) {
+        log(`Skipping matched card — slot is marked Ended. Looking for today's open card...`);
+        continue;
+      }
+      if (text.includes("full")) {
+        log(`Skipping matched card — slot is Full. Looking for another...`);
+        continue;
+      }
 
-    // Log the full card status for diagnostics (gender restriction, Outside Booking Hours, etc.)
-    log(`Matched slot card text: "${text.substring(0, 120)}"`);
+      // Detect "0/N spots available" — slot is fully booked, stop immediately.
+      const zeroSpotsMatch = text.match(/(\d+)\/(\d+)\s+spots?\s+available/);
+      if (zeroSpotsMatch && zeroSpotsMatch[1] === "0") {
+        log(`Slot "${slotLabel}" is fully booked (0/${zeroSpotsMatch[2]} spots). Cannot book.`, "warn");
+        return { outcome: "unavailable" };
+      }
 
-    const isDisabled = await btn.isDisabled().catch(() => false);
-    if (isDisabled) {
-      // Button is disabled = slot is outside booking hours. Keep polling until it opens.
-      // NOTE: "male"/"female" text on the card is just the gender label, NOT a restriction
-      // that prevents booking — the account can still book gender-labelled slots.
-      log(`Slot "${slotLabel}" found but button is disabled (Outside Booking Hours). Polling...`);
-      return { outcome: "slot-not-visible" };
+      // Log the full card status for diagnostics.
+      log(`Matched slot card text: "${text.substring(0, 120)}"`);
+
+      const isDisabled = await btn.isDisabled().catch(() => false);
+      if (isDisabled) {
+        // Button disabled = outside booking hours. Signal caller to keep polling.
+        log(`Slot "${slotLabel}" found but button is disabled (Outside Booking Hours). Polling...`);
+        return { outcome: "slot-not-visible" };
+      }
+
+      // Scroll button into view before clicking (avoids "element not in viewport" errors).
+      await btn.scrollIntoViewIfNeeded().catch(() => null);
+      await page.waitForTimeout(300);
+
+      await btn.click({ timeout: 3000 }).catch(() => null);
+      log(`Clicked "View Spots" for slot: ${slotLabel}`);
+
+      // Wait for the seats/spots page to fully load (SPA navigation + data fetch).
+      await page.waitForTimeout(3000);
+      await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => null);
+      await page.waitForTimeout(2000);
+
+      log(`Spots page loaded, now at: ${page.url()}`);
+      return { outcome: "opened" };
     }
-
-    await btn.click({ timeout: 3000 }).catch(() => null);
-    log(`Clicked "View Spots" for slot: ${slotLabel}`);
-    
-    // Wait for the seats/spots page to fully load (SPA navigation + data fetch).
-    await page.waitForTimeout(3000);
-    await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => null);
-    await page.waitForTimeout(2000);
-    
-    log(`Spots page loaded, now at: ${page.url()}`);
-    return { outcome: "opened" };
   }
 
+  // Scroll back to top for next retry attempt.
+  await page.evaluate(() => window.scrollTo(0, 0));
   return { outcome: "slot-not-visible" };
 }
+
 
 async function chooseAnyAvailableSpotAndConfirm(page, log) {
   // Wait for the numbered spot buttons to appear (they load via SPA fetch).
@@ -406,6 +421,13 @@ async function chooseAnyAvailableSpotAndConfirm(page, log) {
 async function tryBookSlot(page, sport, slotTime, log) {
   const openedSport = await openSportCardAndSlotList(page, sport, log);
   if (!openedSport) {
+    // Check if the page shows "no sports available" — this means the sport is closed today
+    // (e.g. facility maintenance, weekend closure). This is permanent for today — stop retrying.
+    const bodyText = normalizeText(await page.locator("body").innerText().catch(() => ""));
+    if (bodyText.includes("no sports available")) {
+      log(`Sport "${sport}" is not available today (website shows 'No Sports Available'). Stopping.`, "warn");
+      return { outcome: "unavailable" };
+    }
     log(`Could not locate sport card: ${sport}`, "warn");
     return { outcome: "slot-not-visible" };
   }
@@ -513,7 +535,7 @@ export async function runBookingAgent(task, logger, options = {}) {
       }
 
       if (result.outcome === "unavailable") {
-        logger.push("Slot unavailable", "warn");
+        logger.push("Slot unavailable — stopping retries (fully booked or facility closed today)", "warn");
         if (Array.isArray(task.nextSlotTimes) && task.nextSlotTimes.length) {
           for (const fallbackSlot of task.nextSlotTimes) {
             logger.push(`Attempting configured fallback slot ${fallbackSlot}`);
@@ -530,6 +552,8 @@ export async function runBookingAgent(task, logger, options = {}) {
             }
           }
         }
+        // Break immediately — no point retrying a fully booked or closed slot.
+        break;
       }
 
       if (result.outcome === "booked") {
