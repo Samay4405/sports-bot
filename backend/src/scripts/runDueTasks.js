@@ -103,6 +103,7 @@ async function runTask(task) {
     logger,
     {
       screenshotDir: path.join(process.cwd(), "screenshots"),
+      preWaitMs: task._waitMs || 0,  // Time to wait inside browser before booking starts
     }
   );
 
@@ -232,12 +233,12 @@ async function main() {
   let failedCount = 0;
 
   for (const task of tasks) {
-    // If the trigger time is in the future, sleep until exactly that time.
+    // If the trigger time is in the future, DON'T sleep idle here.
+    // Instead pass the waitMs into the bot so it can pre-login and navigate early,
+    // then click the booking button at exactly the right moment.
     if (task._waitMs > 0) {
       const waitMin = Math.round(task._waitMs / 60000);
-      console.log(`[scheduler] ⏳ Task ${task.id} (${task.sport}) — sleeping ${waitMin} min until trigger time ${task.triggerTime} IST...`);
-      await new Promise((resolve) => setTimeout(resolve, task._waitMs));
-      console.log(`[scheduler] ⏰ Wake up! Executing task ${task.id} now at IST ${getCurrentIstHHmm()}`);
+      console.log(`[scheduler] ⏳ Task ${task.id} (${task.sport}) — will pre-login and wait ${waitMin} min inside browser until trigger time ${task.triggerTime} IST...`);
     }
 
     console.log(`[scheduler] Running task ${task.id} (${task.sport} at ${task.slotTime})`);

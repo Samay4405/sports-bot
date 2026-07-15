@@ -516,6 +516,23 @@ export async function runBookingAgent(task, logger, options = {}) {
     logger.push("Authentication check passed");
     await navigateToSportsListing(page, task.websiteUrl, (msg, level) => logger.push(msg, level));
 
+    // PRE-NAVIGATE STRATEGY: If we woke up early (cron fired before trigger time),
+    // navigate to the sport's slot page NOW and wait there. This way at exactly
+    // 5:00 AM the bot is already on the page and can click the moment booking opens —
+    // instead of wasting those precious seconds on login + navigation at 5:00 AM.
+    const preWaitMs = options.preWaitMs || 0;
+    if (preWaitMs > 0) {
+      logger.push(`Pre-navigating to slot page ${Math.round(preWaitMs / 60000)} min early. Will wait until trigger time before booking.`);
+      // Open the sport card so we're already on the slots listing page.
+      await openSportCardAndSlotList(page, task.sport, (msg, level) => logger.push(msg, level));
+      // Sleep here — we're inside the browser, session stays alive.
+      logger.push(`Waiting ${Math.round(preWaitMs / 1000)}s for booking window to open at trigger time...`);
+      await page.waitForTimeout(preWaitMs);
+      logger.push(`Booking window should now be open — starting booking attempts.`);
+      // Navigate back to sports listing to start fresh retry loop.
+      await navigateToSportsListing(page, task.websiteUrl, (msg, level) => logger.push(msg, level));
+    }
+
     const retryDeadline = Date.now() + SLOT_RETRY_WINDOW_MS;
     let result = { outcome: "slot-not-visible" };
 
