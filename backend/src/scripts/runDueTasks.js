@@ -95,6 +95,10 @@ async function runTask(task) {
 
   logger.push("GitHub Actions run started");
 
+  // Build a date+run-specific screenshot folder: screenshots/YYYY-MM-DD/run-{runId}/
+  const istDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }); // "2026-07-17"
+  const runSubdir = path.join(process.cwd(), 'screenshots', istDate, `run-${run.id.slice(0, 8)}`);
+
   const result = await runBookingAgent(
     {
       ...task,
@@ -102,7 +106,7 @@ async function runTask(task) {
     },
     logger,
     {
-      screenshotDir: path.join(process.cwd(), "screenshots"),
+      screenshotDir: runSubdir,
       preWaitMs: task._waitMs || 0,  // Time to wait inside browser before booking starts
     }
   );

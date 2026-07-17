@@ -535,16 +535,27 @@ export async function runBookingAgent(task, logger, options = {}) {
 
     const retryDeadline = Date.now() + SLOT_RETRY_WINDOW_MS;
     let result = { outcome: "slot-not-visible" };
+    let attemptNum = 0;
 
     while (Date.now() <= retryDeadline) {
       if (Date.now() - startedAt > BOT_TIMEOUT_MS) {
         throw new Error("Booking aborted due to 5 minute global timeout");
       }
 
+      attemptNum += 1;
       logger.push(`Checking sport ${task.sport} and slot ${task.slotTime} at epoch ${Date.now()}`);
       // Navigate directly to the sports listing URL — never click nav buttons.
       await navigateToSportsListing(page, task.websiteUrl, (msg, level) => logger.push(msg, level));
       result = await tryBookSlot(page, task.sport, task.slotTime, (msg, level) => logger.push(msg, level));
+
+      // Take a screenshot on the FIRST attempt and on every non-booked outcome so you can
+      // see exactly what the page looked like at that point in time.
+      if (attemptNum === 1 || result.outcome !== "booked") {
+        const label = result.outcome === "booked" ? "success" : result.outcome;
+        const shotName = `attempt-${String(attemptNum).padStart(2, "0")}-${label}.png`;
+        await page.screenshot({ path: path.join(screenshotDir, shotName), fullPage: true }).catch(() => null);
+        logger.push(`Attempt ${attemptNum} screenshot: ${shotName}`);
+      }
 
       if (result.outcome === "booked") {
         logger.push("Booking interaction executed, verifying confirmation state");
