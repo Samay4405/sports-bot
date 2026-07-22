@@ -580,17 +580,18 @@ export async function runBookingAgent(task, logger, options = {}) {
             }
           }
         }
-        // Break immediately — no point retrying a fully booked or closed slot.
         break;
       }
 
-      if (result.outcome === "booked") {
+      if (result.outcome === "slot-not-visible") {
+        // Booking window not open yet (Outside Booking Hours).
+        // Exit immediately — cron retries in 30 minutes. No point spinning every 2s.
+        logger.push("Slot not in booking window yet — exiting. Next cron check in ~30 min.");
         break;
       }
 
       logger.push("Slot not ready yet, retrying in 2 seconds");
       await page.waitForTimeout(SLOT_RETRY_INTERVAL_MS);
-      // Go back to sports listing for the next attempt (no reload — avoids staying on wrong page).
     }
 
     if (result.outcome !== "booked") {
