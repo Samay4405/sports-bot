@@ -1,7 +1,8 @@
 import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
-const since = new Date('2026-07-15T18:30:00Z'); // Jul 16 IST start
+// Jul 22 IST starts at Jul 21 18:30 UTC
+const since = new Date('2026-07-21T18:30:00Z');
 
 const runs = await prisma.run.findMany({
   orderBy: { executedAt: 'asc' },
@@ -9,14 +10,14 @@ const runs = await prisma.run.findMany({
   include: { task: true }
 });
 
-console.log(`Runs today (Jul 16): ${runs.length}\n`);
+console.log(`Runs today (Jul 22): ${runs.length}\n`);
 
 for (const r of runs) {
   const ist = new Date(r.executedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
   const logs = JSON.parse(r.logs || '[]');
   console.log(`${'='.repeat(60)}`);
   console.log(`[${r.status.toUpperCase()}] ${r.task.sport} | ${r.task.slotTime}`);
-  console.log(`Ran at (IST): ${ist} | ${logs.length} log entries`);
+  console.log(`IST: ${ist} | Logs: ${logs.length}`);
   console.log(`${'='.repeat(60)}`);
   const seen = new Set();
   for (const l of logs) {
