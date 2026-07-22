@@ -91,11 +91,12 @@ jobs:
           RUN_IGNORE_TRIGGER_TIME: ${{ github.event.inputs.ignore_trigger_time }}
         run: npm run run:due-tasks
 
-      # Optional Step 8: Upload screenshots/log artifacts from this run.
-      - name: Upload screenshots artifact
+      # Step 8: Upload screenshots + summary.md from this specific run as a named artifact.
+      # Artifact name includes date + attempt so each cron run is clearly identified.
+      - name: Upload run screenshots & summary
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: booking-screenshots-${{ github.run_id }}-${{ github.run_attempt }}
+          name: "booking-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
           path: backend/screenshots
           if-no-files-found: ignore

@@ -95,9 +95,11 @@ async function runTask(task) {
 
   logger.push("GitHub Actions run started");
 
-  // Build a date+run-specific screenshot folder: screenshots/YYYY-MM-DD/run-{runId}/
-  const istDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }); // "2026-07-17"
-  const runSubdir = path.join(process.cwd(), 'screenshots', istDate, `run-${run.id.slice(0, 8)}`);
+  // Build date+time-specific screenshot folder: screenshots/YYYY-MM-DD/HH-MM-IST/
+  const now = new Date();
+  const istDate = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }); // "2026-07-22"
+  const istTime = now.toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }).replace(':', '-'); // "04-30"
+  const runSubdir = path.join(process.cwd(), 'screenshots', istDate, `${istTime}-IST-run-${run.id.slice(0, 8)}`);
 
   const result = await runBookingAgent(
     {
@@ -107,9 +109,32 @@ async function runTask(task) {
     logger,
     {
       screenshotDir: runSubdir,
-      preWaitMs: task._waitMs || 0,  // Time to wait inside browser before booking starts
+      preWaitMs: task._waitMs || 0,
     }
   );
+
+  // Extract key diagnostic info from logs for the summary.
+  const logs = JSON.parse(logger.toJSON());
+  const cardText = logs.find(l => l.message.includes('Matched slot card text'))?.message || '';
+  const spotsMatch = cardText.match(/(\d+)\/(\d+)\s+spots?/);
+  const outsideHours = logs.some(l => l.message.includes('Outside Booking Hours'));
+  const shotFile = result.screenshotPath || logs.find(l => l.message.includes('screenshot:'))?.message?.split(': ')[1] || 'none';
+
+  // Write a human-readable summary.md into the screenshot folder.
+  const summaryMd = [
+    `# Run Summary`,
+    `**Date (IST):** ${istDate} ${istTime.replace('-', ':')} AM`,
+    `**Sport:** ${task.sport}`,
+    `**Slot:** ${task.slotTime}`,
+    `**Status:** ${result.status}`,
+    `**Reason:** ${result.reason || '-'}`,
+    spotsMatch ? `**Spots available:** ${spotsMatch[1]}/${spotsMatch[2]}` : '',
+    outsideHours ? `**Booking window:** \u274c Outside Booking Hours at this time` : `**Booking window:** \u2705 Open`,
+    `**Screenshot:** ${shotFile}`,
+  ].filter(Boolean).join('\n');
+
+  await fs.mkdir(runSubdir, { recursive: true }).catch(() => null);
+  await fs.writeFile(path.join(runSubdir, 'summary.md'), summaryMd).catch(() => null);
 
   await prisma.run.update({
     where: { id: run.id },
@@ -120,7 +145,16 @@ async function runTask(task) {
     },
   });
 
-  return { runId: run.id, status: result.status, reason: result.reason, screenshotPath: result.screenshotPath };
+  return {
+    runId: run.id,
+    status: result.status,
+    reason: result.reason,
+    screenshotPath: result.screenshotPath,
+    spotsInfo: spotsMatch ? `${spotsMatch[1]}/${spotsMatch[2]}` : 'unknown',
+    outsideHours,
+    istTime,
+    istDate,
+  };
 }
 
 async function appendStepSummary(lines) {
@@ -232,17 +266,23 @@ async function main() {
   }
 
   console.log(`[scheduler] Found ${tasks.length} due task(s).`);
-  const summaryLines = ["## Scheduled Sports Booking", `- Due tasks found: ${tasks.length}`];
+
+  // Build a rich per-run step summary.
+  const istNow = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+  const summaryLines = [
+    `## 🏊 Sports Booking — Check Cycle`,
+    `| Field | Value |`,
+    `|-------|-------|`,
+    `| **Run time (IST)** | ${istNow} |`,
+    `| **Tasks due** | ${tasks.length} |`,
+  ];
 
   let failedCount = 0;
 
   for (const task of tasks) {
-    // If the trigger time is in the future, DON'T sleep idle here.
-    // Instead pass the waitMs into the bot so it can pre-login and navigate early,
-    // then click the booking button at exactly the right moment.
     if (task._waitMs > 0) {
       const waitMin = Math.round(task._waitMs / 60000);
-      console.log(`[scheduler] ⏳ Task ${task.id} (${task.sport}) — will pre-login and wait ${waitMin} min inside browser until trigger time ${task.triggerTime} IST...`);
+      console.log(`[scheduler] ⏳ Task (${task.sport}) — pre-login, waiting ${waitMin} min until ${task.triggerTime} IST...`);
     }
 
     console.log(`[scheduler] Running task ${task.id} (${task.sport} at ${task.slotTime})`);
@@ -250,17 +290,35 @@ async function main() {
     try {
       const result = await runTask(task);
       console.log(`[scheduler] Task ${task.id} finished with status: ${result.status}`);
+
+      const statusEmoji = result.status === 'success' ? '✅' : result.status === 'unavailable' ? '🔴' : '⏳';
+      const windowStatus = result.outsideHours ? '❌ Outside Booking Hours' : '✅ Open';
+
       summaryLines.push(
-        `- Task ${task.id} (${task.sport} ${task.slotTime}): ${result.status}${result.reason ? ` - ${result.reason}` : ""}`
+        `| **Sport** | ${task.sport} |`,
+        `| **Slot** | ${task.slotTime} |`,
+        `| **Check time (IST)** | ${result.istDate} ${result.istTime?.replace('-', ':')} |`,
+        `| **Booking window** | ${windowStatus} |`,
+        `| **Spots available** | ${result.spotsInfo} |`,
+        `| **Result** | ${statusEmoji} ${result.status} |`,
+        `| **Reason** | ${result.reason || '-'} |`,
+        `| **Screenshot** | \`${result.screenshotPath || 'see artifact'}\` |`,
+        ``,
+        result.status === 'success'
+          ? `> ✅ **BOOKED SUCCESSFULLY!** Slot ${task.slotTime} is confirmed.`
+          : result.outsideHours
+          ? `> ⏳ Booking window not open yet. Next check in ~30 min.`
+          : `> ❌ Booking failed: ${result.reason}`,
       );
 
-      if (result.status !== "success") {
-        failedCount += 1;
-      }
+      if (result.status !== 'success') failedCount += 1;
     } catch (error) {
       failedCount += 1;
       console.error(`[scheduler] Task ${task.id} crashed: ${error.message}`);
-      summaryLines.push(`- Task ${task.id} (${task.sport} ${task.slotTime}): crashed - ${error.message}`);
+      summaryLines.push(
+        `| **Result** | 💥 crashed |`,
+        `| **Error** | ${error.message} |`,
+      );
     }
   }
 
