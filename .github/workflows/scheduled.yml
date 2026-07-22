@@ -1,12 +1,14 @@
 name: Scheduled Sports Booking
 
 on:
-  # Booking opens at 5:00 AM IST. First cron fires at 4:35 AM IST so the bot wakes early,
-  # waits via forwardMin logic, then executes at exactly 5:00 AM. Retries until 7:20 AM IST.
-  # 4:35 AM IST = 23:05 UTC | 7:20 AM IST = 01:50 UTC
+  # Booking opens at 5:00 AM IST. GitHub Actions has ~30-60min jitter, so we start
+  # the cron window at 3:30 AM IST. The bot pre-logins early and waits in-browser
+  # until exactly 5:00 AM, then clicks the moment the booking window opens.
+  # 3:30 AM IST = 22:00 UTC | 7:20 AM IST = 01:50 UTC
   schedule:
-    - cron: "5,20,35,50 23 * * *"     # 04:35 AM – 05:20 AM IST
-    - cron: "5,20,35,50 0-1 * * *"    # 05:35 AM – 07:20 AM IST  (retry window)
+    - cron: "0,15,30,45 22 * * *"    # 03:30 AM – 04:15 AM IST  (early wake window)
+    - cron: "0,15,30,45 23 * * *"    # 04:30 AM – 05:15 AM IST  (target window)
+    - cron: "5,20,35,50 0-1 * * *"   # 05:35 AM – 07:20 AM IST  (retry window)
 
   # Allows manual trigger from the Actions tab for testing.
   workflow_dispatch:

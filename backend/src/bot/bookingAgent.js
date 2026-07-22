@@ -548,13 +548,13 @@ export async function runBookingAgent(task, logger, options = {}) {
       await navigateToSportsListing(page, task.websiteUrl, (msg, level) => logger.push(msg, level));
       result = await tryBookSlot(page, task.sport, task.slotTime, (msg, level) => logger.push(msg, level));
 
-      // Take a screenshot on the FIRST attempt and on every non-booked outcome so you can
-      // see exactly what the page looked like at that point in time.
-      if (attemptNum === 1 || result.outcome !== "booked") {
+      // Take a screenshot only on the FIRST attempt so you can see exactly
+      // what the slot page looked like when the bot arrived.
+      if (attemptNum === 1) {
         const label = result.outcome === "booked" ? "success" : result.outcome;
-        const shotName = `attempt-${String(attemptNum).padStart(2, "0")}-${label}.png`;
+        const shotName = `attempt-01-first-check-${label}.png`;
         await page.screenshot({ path: path.join(screenshotDir, shotName), fullPage: true }).catch(() => null);
-        logger.push(`Attempt ${attemptNum} screenshot: ${shotName}`);
+        logger.push(`First-check screenshot: ${shotName}`);
       }
 
       if (result.outcome === "booked") {

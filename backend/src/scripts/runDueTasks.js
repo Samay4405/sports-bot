@@ -138,7 +138,7 @@ async function main() {
   // How far back (in minutes) to look for tasks whose triggerTime has passed.
   const backwardMin = parseInt(process.env.TRIGGER_WINDOW_BACKWARD || "60", 10);
   // How far forward (in minutes) to look — bot will WAIT until the trigger time.
-  const forwardMin = parseInt(process.env.TRIGGER_WINDOW_FORWARD || "45", 10);
+  const forwardMin = parseInt(process.env.TRIGGER_WINDOW_FORWARD || "120", 10);
 
   if (ignoreTriggerTime && !onlyTaskId) {
     throw new Error(
