@@ -6,6 +6,29 @@ const BOT_TIMEOUT_MS = 7 * 60 * 1000;      // 7 min global timeout per task
 const SLOT_RETRY_WINDOW_MS = 5 * 60 * 1000; // retry for up to 5 min waiting for slot to open
 const SLOT_RETRY_INTERVAL_MS = 2 * 1000;    // check every 2 seconds
 
+/** Generate an IST timestamp string like "05-00-32" for screenshot names. */
+function getIstTimeString() {
+  const now = new Date();
+  return now.toLocaleTimeString('en-GB', {
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).replace(/:/g, '-');
+}
+
+/** Build a descriptive screenshot filename: "01_05-00-32-IST_reason.png" */
+function makeScreenshotName(stepNumber, reason, ext = 'png') {
+  const ist = getIstTimeString();
+  const safeReason = String(reason || 'unknown')
+    .replace(/[^a-zA-Z0-9\-_ ]/g, '')
+    .replace(/\s+/g, '-')
+    .substring(0, 60)
+    .toLowerCase();
+  const step = String(stepNumber).padStart(2, '0');
+  return `${step}_${ist}-IST_${safeReason}.${ext}`;
+}
+
 const USERNAME_SELECTORS = [
   'input[name*="user" i]',
   'input[placeholder*="user" i]',
@@ -444,12 +467,29 @@ export async function runBookingAgent(task, logger, options = {}) {
   const browser = await chromium.launch({ headless: options.headless !== false });
   const screenshotDir = options.screenshotDir || path.join(process.cwd(), "screenshots");
   const startedAt = Date.now();
+  let page = null;
+  let screenshotStep = 0;
+
+  // Screenshot helper: auto-incrementing step number + IST timestamp + descriptive reason.
+  // Files sort naturally: 01_05-00-32-IST_post-login.png, 02_05-00-45-IST_attempt-1-booked.png
+  const takeShot = async (reason, opts = {}) => {
+    if (!page) return null;
+    screenshotStep++;
+    const name = makeScreenshotName(screenshotStep, reason);
+    await page.screenshot({ path: path.join(screenshotDir, name), fullPage: opts.fullPage !== false }).catch(() => null);
+    logger.push(`Screenshot #${screenshotStep}: ${name}`);
+    if (opts.saveHtml) {
+      const htmlName = makeScreenshotName(screenshotStep, reason, 'html');
+      await fs.writeFile(path.join(screenshotDir, htmlName), await page.content().catch(() => "")).catch(() => null);
+    }
+    return name;
+  };
 
   try {
     await fs.mkdir(screenshotDir, { recursive: true });
 
     const context = await browser.newContext();
-    const page = await context.newPage();
+    page = await context.newPage();
 
     logger.push(`Bot execution started at epoch ${Date.now()}`);
     logger.push(`Navigating to ${task.websiteUrl}`);
@@ -515,6 +555,7 @@ export async function runBookingAgent(task, logger, options = {}) {
 
     logger.push("Authentication check passed");
     await navigateToSportsListing(page, task.websiteUrl, (msg, level) => logger.push(msg, level));
+    await takeShot('post-login-sports-listing');
 
     // PRE-NAVIGATE STRATEGY: If we woke up early (cron fired before trigger time),
     // navigate to the sport's slot page NOW and wait there. This way at exactly
@@ -548,14 +589,9 @@ export async function runBookingAgent(task, logger, options = {}) {
       await navigateToSportsListing(page, task.websiteUrl, (msg, level) => logger.push(msg, level));
       result = await tryBookSlot(page, task.sport, task.slotTime, (msg, level) => logger.push(msg, level));
 
-      // Take a screenshot only on the FIRST attempt so you can see exactly
-      // what the slot page looked like when the bot arrived.
-      if (attemptNum === 1) {
-        const label = result.outcome === "booked" ? "success" : result.outcome;
-        const shotName = `attempt-01-first-check-${label}.png`;
-        await page.screenshot({ path: path.join(screenshotDir, shotName), fullPage: true }).catch(() => null);
-        logger.push(`First-check screenshot: ${shotName}`);
-      }
+      // Take a screenshot at each booking attempt with descriptive naming.
+      const attemptLabel = result.outcome === "booked" ? "success" : result.outcome;
+      await takeShot(`attempt-${attemptNum}-${attemptLabel}`);
 
       if (result.outcome === "booked") {
         logger.push("Booking interaction executed, verifying confirmation state");
@@ -604,12 +640,8 @@ export async function runBookingAgent(task, logger, options = {}) {
 
       let failShot = null;
       try {
-        failShot = `task-${task.id}-failure-${Date.now()}.png`;
-        const failHtml = `task-${task.id}-failure-${Date.now()}.html`;
-        await page.screenshot({ path: path.join(screenshotDir, failShot), fullPage: true }).catch(() => null);
-        await fs.writeFile(path.join(screenshotDir, failHtml), await page.content().catch(() => "")).catch(() => null);
-        logger.push(`Saved failure screenshot: ${failShot}`);
-        logger.push(`Saved failure page HTML: ${failHtml}`);
+        const safeReason = reason.replace(/[^a-zA-Z0-9 ]/g, '').substring(0, 40).trim();
+        failShot = await takeShot(`final-${result.outcome}-${safeReason}`, { saveHtml: true });
       } catch {
         failShot = null;
       }
@@ -621,24 +653,14 @@ export async function runBookingAgent(task, logger, options = {}) {
       };
     }
 
-    const screenshotFile = `task-${task.id}-${Date.now()}.png`;
-    const screenshotPath = path.join(screenshotDir, screenshotFile);
-    await page.screenshot({ path: screenshotPath, fullPage: true });
+    const screenshotFile = await takeShot('final-success-booking-confirmed');
 
     logger.push("Booking confirmed and screenshot captured");
     return { status: "success", reason: "Booking confirmed", screenshotPath: screenshotFile };
   } catch (error) {
     logger.push(`Bot error: ${error.message}`, "error");
     try {
-      const failShot = `task-${task.id}-failure-${Date.now()}.png`;
-      const failHtml = `task-${task.id}-failure-${Date.now()}.html`;
-      const shotPath = path.join(screenshotDir, failShot);
-      const htmlPath = path.join(screenshotDir, failHtml);
-      await page.screenshot({ path: shotPath, fullPage: true }).catch(() => null);
-      const body = await page.content().catch(() => "");
-      await fs.writeFile(htmlPath, body).catch(() => null);
-      logger.push(`Saved failure screenshot: ${failShot}`);
-      logger.push(`Saved failure page HTML: ${failHtml}`);
+      const failShot = await takeShot(`error-${error.message.substring(0, 30)}`, { saveHtml: true });
       return { status: "failed", reason: error.message, screenshotPath: failShot };
     } catch (inner) {
       return { status: "failed", reason: error.message, screenshotPath: null };

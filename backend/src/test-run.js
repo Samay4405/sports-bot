@@ -21,9 +21,15 @@ async function test() {
 
   console.log(`Testing: ${testTask.sport} @ ${testTask.slotTime}`);
 
+  // Create per-run screenshot subdirectory: screenshots/YYYY-MM-DD/HH-MM-IST-test/
+  const now = new Date();
+  const istDate = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const istTime = now.toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }).replace(':', '-');
+  const testSubdir = path.join(process.cwd(), 'screenshots', istDate, `${istTime}-IST-test`);
+
   const logger = new RunLogger({ taskId: "fix-test", runId: "fix-test", emitter: null });
   const result = await runBookingAgent(testTask, logger, {
-    screenshotDir: path.join(process.cwd(), "screenshots")
+    screenshotDir: testSubdir
   });
 
   console.log("\n=== RESULT ===");

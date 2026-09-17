@@ -1,8 +1,14 @@
 import express from "express";
+import path from "path";
+import fs from "fs/promises";
+import { fileURLToPath } from "url";
 import prisma from "../lib/prisma.js";
 import { encryptText, decryptText } from "../lib/encrypt.js";
 import { RunLogger } from "../lib/logger.js";
 import { runBookingAgent } from "../bot/bookingAgent.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 function parseNextSlots(value) {
   if (!value) return [];
@@ -52,13 +58,22 @@ export default function createTaskRouter({ cronManager, logHub }) {
 
     logger.push("Run started");
 
+    // Create per-run screenshot subdirectory: screenshots/YYYY-MM-DD/HH-MM-IST-manual-{runId}/
+    const now = new Date();
+    const istDate = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    const istTime = now.toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }).replace(':', '-');
+    const screenshotsBase = path.resolve(__dirname, "../../screenshots");
+    const runSubdir = path.join(screenshotsBase, istDate, `${istTime}-IST-manual-${run.id.slice(0, 8)}`);
+    await fs.mkdir(runSubdir, { recursive: true });
+
     const result = await runBookingAgent(
       {
         ...task,
         decryptedPassword: decryptText(task.password),
         nextSlotTimes: parseNextSlots(task.nextSlotTimes),
       },
-      logger
+      logger,
+      { screenshotDir: runSubdir }
     );
 
     await prisma.run.update({
