@@ -8,7 +8,7 @@ CREATE TABLE "Task" (
     "slotTime" TEXT NOT NULL,
     "triggerTime" TEXT NOT NULL,
     "enabled" BOOLEAN NOT NULL DEFAULT true,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Task_pkey" PRIMARY KEY ("id")
 );
@@ -20,10 +20,8 @@ CREATE TABLE "Run" (
     "status" TEXT NOT NULL,
     "logs" TEXT NOT NULL,
     "screenshotPath" TEXT,
-    "executedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "executedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT "Run_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "Run_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "Run_taskId_fkey" FOREIGN KEY ("taskId") REFERENCES "Task"("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
-
--- AddForeignKey
-ALTER TABLE "Run" ADD CONSTRAINT "Run_taskId_fkey" FOREIGN KEY ("taskId") REFERENCES "Task"("id") ON DELETE CASCADE ON UPDATE CASCADE;

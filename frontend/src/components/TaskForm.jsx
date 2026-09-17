@@ -15,6 +15,8 @@ const SLOT_LABEL_OPTIONS = [
   "__custom__",
 ];
 
+const DEFAULT_SPORTS = ["Badminton", "Basketball", "Carrom", "Cricket", "Football", "Tennis"];
+
 const EMPTY_FORM = {
   id: "",
   websiteUrl: "",
@@ -40,7 +42,10 @@ export default function TaskForm({
   const [form, setForm] = useState(() => currentTask || EMPTY_FORM);
 
   const sports = useMemo(() => {
-    const unique = new Set(tasks.map((task) => task.sport).filter(Boolean));
+    const unique = new Set([
+      ...DEFAULT_SPORTS,
+      ...tasks.map((task) => task.sport).filter(Boolean),
+    ]);
     if (form.sport && !unique.has(form.sport)) unique.add(form.sport);
     return Array.from(unique);
   }, [tasks, form.sport]);
@@ -127,6 +132,7 @@ export default function TaskForm({
           <label className="mb-1 block text-sm font-medium">Password</label>
           <Input
             type="password"
+            required={!form.id}
             value={form.password}
             onChange={(e) => update({ password: e.target.value })}
             placeholder={form.id ? "Leave empty to keep saved password" : "Enter password"}
