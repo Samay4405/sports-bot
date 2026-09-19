@@ -101,17 +101,24 @@ async function runTask(task) {
   const istTime = now.toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }).replace(':', '-'); // "04-30"
   const runSubdir = path.join(process.cwd(), 'screenshots', istDate, `${istTime}-IST-run-${run.id.slice(0, 8)}`);
 
-  const result = await runBookingAgent(
-    {
-      ...task,
-      decryptedPassword: decryptText(task.password),
-    },
-    logger,
-    {
-      screenshotDir: runSubdir,
-      preWaitMs: task._waitMs || 0,
-    }
-  );
+  let result;
+  try {
+    result = await runBookingAgent(
+      {
+        ...task,
+        decryptedPassword: decryptText(task.password),
+      },
+      logger,
+      {
+        screenshotDir: runSubdir,
+        preWaitMs: task._waitMs || 0,
+      }
+    );
+  } catch (err) {
+    logger.push(`Fatal crash in runBookingAgent: ${err.message}`, "error");
+    logger.push(`Stack: ${err.stack}`, "error");
+    result = { status: "failed", reason: `Bot crashed: ${err.message}`, screenshotPath: null };
+  }
 
   // Extract key diagnostic info from logs for the summary.
   const logs = JSON.parse(logger.toJSON());
@@ -244,7 +251,7 @@ async function main() {
       where: {
         taskId: task.id,
         executedAt: { gte: todayStart, lte: todayEnd },
-        status: { in: ['success', 'running'] },
+        status: 'success',
       },
     });
     if (existingRun) {

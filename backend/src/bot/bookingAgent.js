@@ -464,9 +464,9 @@ async function tryBookSlot(page, sport, slotTime, log) {
 }
 
 export async function runBookingAgent(task, logger, options = {}) {
-  const browser = await chromium.launch({ headless: options.headless !== false });
   const screenshotDir = options.screenshotDir || path.join(process.cwd(), "screenshots");
   const startedAt = Date.now();
+  let browser = null;
   let page = null;
   let screenshotStep = 0;
 
@@ -488,6 +488,7 @@ export async function runBookingAgent(task, logger, options = {}) {
   try {
     await fs.mkdir(screenshotDir, { recursive: true });
 
+    browser = await chromium.launch({ headless: options.headless !== false });
     const context = await browser.newContext();
     page = await context.newPage();
 
@@ -666,6 +667,6 @@ export async function runBookingAgent(task, logger, options = {}) {
       return { status: "failed", reason: error.message, screenshotPath: null };
     }
   } finally {
-    await browser.close();
+    if (browser) await browser.close();
   }
 }
